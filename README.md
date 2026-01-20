@@ -24,6 +24,9 @@ Features that actually work:
 - Classes with methods
 - Result types (`Ok`/`Err`) with pattern matching cause **RUST**
 - Hash maps
+- **Module system** with `require` (Rust-inspired, package manager ready)
+- **String interpolation** with `f"hello {name}"`
+- Project config via `carv.toml`
 - Basic standard library
 
 ---
@@ -31,6 +34,11 @@ Features that actually work:
 ## Quick Look
 
 ```carv
+// string interpolation
+let name = "World";
+println(f"Hello, {name}!");
+println(f"2 + 2 = {2 + 2}");
+
 // pipes make everything nicer
 10 |> double |> add(5) |> print;
 
@@ -56,6 +64,19 @@ class Counter {
 }
 ```
 
+### Modules
+
+```carv
+// math.carv
+pub fn add(a: int, b: int) -> int {
+    return a + b;
+}
+
+// main.carv
+require { add } from "./math";
+println(f"1 + 2 = {add(1, 2)}");
+```
+
 ---
 
 ## Building
@@ -70,6 +91,7 @@ Then:
 ```bash
 ./build/carv run file.carv      # interpret
 ./build/carv build file.carv    # compile to binary
+./build/carv init               # create new project with carv.toml
 ./build/carv repl               # mess around
 ```
 
@@ -81,7 +103,10 @@ Then:
 - [x] Interpreter
 - [x] C codegen
 - [x] Result types, classes, maps
-- [ ] Module system
+- [x] Module system (`require`)
+- [x] String interpolation (`f"..."`)
+- [x] Project config (`carv.toml`)
+- [ ] Package manager
 - [ ] Self-hosting
 
 ---
