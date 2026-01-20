@@ -11,7 +11,6 @@ type CGenerator struct {
 	output       strings.Builder
 	indent       int
 	tempCounter  int
-	functions    []string
 	arrayLengths map[string]int
 	varTypes     map[string]string
 }
@@ -1018,14 +1017,6 @@ func (g *CGenerator) inferCallType(e *ast.CallExpression) string {
 		}
 	}
 	return "carv_int"
-}
-
-func (g *CGenerator) inferResultExprType(expr ast.Expression) string {
-	switch expr.(type) {
-	case *ast.OkExpression, *ast.ErrExpression:
-		return "carv_result"
-	}
-	return ""
 }
 
 func (g *CGenerator) generateOkExpression(e *ast.OkExpression) string {

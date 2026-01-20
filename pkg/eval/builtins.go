@@ -1,10 +1,19 @@
 package eval
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 )
+
+var cliArgs []string
+
+func SetArgs(args []string) {
+	cliArgs = args
+}
 
 var builtins = map[string]*Builtin{
 	"print": {
@@ -48,6 +57,38 @@ var builtins = map[string]*Builtin{
 				return newError("str() takes exactly 1 argument")
 			}
 			return &String{Value: args[0].Inspect()}
+		},
+	},
+	"parse_int": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 1 {
+				return newError("parse_int() takes exactly 1 argument")
+			}
+			str, ok := args[0].(*String)
+			if !ok {
+				return newError("parse_int() argument must be a string")
+			}
+			val, err := strconv.ParseInt(str.Value, 10, 64)
+			if err != nil {
+				return newError("cannot parse '%s' as int", str.Value)
+			}
+			return &Integer{Value: val}
+		},
+	},
+	"parse_float": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 1 {
+				return newError("parse_float() takes exactly 1 argument")
+			}
+			str, ok := args[0].(*String)
+			if !ok {
+				return newError("parse_float() argument must be a string")
+			}
+			val, err := strconv.ParseFloat(str.Value, 64)
+			if err != nil {
+				return newError("cannot parse '%s' as float", str.Value)
+			}
+			return &Float{Value: val}
 		},
 	},
 	"int": {
@@ -161,7 +202,7 @@ var builtins = map[string]*Builtin{
 			if !ok {
 				return newError("write_file() second argument must be a string")
 			}
-			err := os.WriteFile(path.Value, []byte(content.Value), 0644)
+			err := os.WriteFile(path.Value, []byte(content.Value), 0o644)
 			if err != nil {
 				return newError("write_file: %s", err.Error())
 			}
@@ -563,6 +604,151 @@ var builtins = map[string]*Builtin{
 			}
 			newPairs[key.HashKey()] = MapPair{Key: args[1], Value: args[2]}
 			return &Map{Pairs: newPairs}
+		},
+	},
+	"args": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 0 {
+				return newError("args() takes no arguments")
+			}
+			elements := make([]Object, len(cliArgs))
+			for i, arg := range cliArgs {
+				elements[i] = &String{Value: arg}
+			}
+			return &Array{Elements: elements}
+		},
+	},
+	"exec": {
+		Fn: func(args ...Object) Object {
+			if len(args) < 1 {
+				return newError("exec() requires at least 1 argument")
+			}
+			cmdStr, ok := args[0].(*String)
+			if !ok {
+				return newError("exec() first argument must be a string")
+			}
+			cmdArgs := make([]string, len(args)-1)
+			for i := 1; i < len(args); i++ {
+				arg, ok := args[i].(*String)
+				if !ok {
+					return newError("exec() arguments must be strings")
+				}
+				cmdArgs[i-1] = arg.Value
+			}
+			cmd := exec.Command(cmdStr.Value, cmdArgs...)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			err := cmd.Run()
+			if err != nil {
+				var exitErr *exec.ExitError
+				if errors.As(err, &exitErr) {
+					return &Integer{Value: int64(exitErr.ExitCode())}
+				}
+				return newError("exec: %s", err.Error())
+			}
+			return &Integer{Value: 0}
+		},
+	},
+	"exec_output": {
+		Fn: func(args ...Object) Object {
+			if len(args) < 1 {
+				return newError("exec_output() requires at least 1 argument")
+			}
+			cmdStr, ok := args[0].(*String)
+			if !ok {
+				return newError("exec_output() first argument must be a string")
+			}
+			cmdArgs := make([]string, len(args)-1)
+			for i := 1; i < len(args); i++ {
+				arg, ok := args[i].(*String)
+				if !ok {
+					return newError("exec_output() arguments must be strings")
+				}
+				cmdArgs[i-1] = arg.Value
+			}
+			cmd := exec.Command(cmdStr.Value, cmdArgs...)
+			output, err := cmd.Output()
+			if err != nil {
+				var exitErr *exec.ExitError
+				if errors.As(err, &exitErr) {
+					return &Err{Value: &String{Value: string(exitErr.Stderr)}}
+				}
+				return &Err{Value: &String{Value: err.Error()}}
+			}
+			return &Ok{Value: &String{Value: string(output)}}
+		},
+	},
+	"mkdir": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 1 {
+				return newError("mkdir() takes exactly 1 argument")
+			}
+			path, ok := args[0].(*String)
+			if !ok {
+				return newError("mkdir() argument must be a string")
+			}
+			err := os.MkdirAll(path.Value, 0o755)
+			if err != nil {
+				return newError("mkdir: %s", err.Error())
+			}
+			return NIL
+		},
+	},
+	"append_file": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 2 {
+				return newError("append_file() takes exactly 2 arguments")
+			}
+			path, ok := args[0].(*String)
+			if !ok {
+				return newError("append_file() first argument must be a string")
+			}
+			content, ok := args[1].(*String)
+			if !ok {
+				return newError("append_file() second argument must be a string")
+			}
+			f, err := os.OpenFile(path.Value, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+			if err != nil {
+				return newError("append_file: %s", err.Error())
+			}
+			defer f.Close()
+			_, err = f.WriteString(content.Value)
+			if err != nil {
+				return newError("append_file: %s", err.Error())
+			}
+			return NIL
+		},
+	},
+	"getenv": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 1 {
+				return newError("getenv() takes exactly 1 argument")
+			}
+			key, ok := args[0].(*String)
+			if !ok {
+				return newError("getenv() argument must be a string")
+			}
+			return &String{Value: os.Getenv(key.Value)}
+		},
+	},
+	"setenv": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 2 {
+				return newError("setenv() takes exactly 2 arguments")
+			}
+			key, ok := args[0].(*String)
+			if !ok {
+				return newError("setenv() first argument must be a string")
+			}
+			val, ok := args[1].(*String)
+			if !ok {
+				return newError("setenv() second argument must be a string")
+			}
+			err := os.Setenv(key.Value, val.Value)
+			if err != nil {
+				return newError("setenv: %s", err.Error())
+			}
+			return NIL
 		},
 	},
 }

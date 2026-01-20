@@ -210,39 +210,53 @@ func (p *Parser) ParseProgram() *ast.Program {
 }
 
 func (p *Parser) parseStatement() ast.Statement {
+	var stmt ast.Statement
 	switch p.curToken.Type {
 	case lexer.TOKEN_PUB:
-		return p.parsePublicStatement()
+		stmt = p.parsePublicStatement()
 	case lexer.TOKEN_LET:
-		return p.parseLetStatement()
+		stmt = p.parseLetStatement()
 	case lexer.TOKEN_MUT:
-		return p.parseLetStatement()
+		stmt = p.parseLetStatement()
 	case lexer.TOKEN_CONST:
-		return p.parseConstStatement()
+		stmt = p.parseConstStatement()
 	case lexer.TOKEN_RETURN:
-		return p.parseReturnStatement()
+		stmt = p.parseReturnStatement()
 	case lexer.TOKEN_FN:
-		return p.parseFunctionStatement()
+		stmt = p.parseFunctionStatement()
 	case lexer.TOKEN_CLASS:
-		return p.parseClassStatement()
+		stmt = p.parseClassStatement()
 	case lexer.TOKEN_FOR:
-		return p.parseForStatement()
+		stmt = p.parseForStatement()
 	case lexer.TOKEN_WHILE:
-		return p.parseWhileStatement()
+		stmt = p.parseWhileStatement()
 	case lexer.TOKEN_BREAK:
-		return p.parseBreakStatement()
+		stmt = p.parseBreakStatement()
 	case lexer.TOKEN_CONTINUE:
-		return p.parseContinueStatement()
+		stmt = p.parseContinueStatement()
 	case lexer.TOKEN_REQUIRE:
-		return p.parseRequireStatement()
+		stmt = p.parseRequireStatement()
 	case lexer.TOKEN_IF:
 		expr := p.parseIfExpression()
 		if expr != nil {
-			return &ast.ExpressionStatement{Token: p.curToken, Expression: expr}
+			stmt = &ast.ExpressionStatement{Token: p.curToken, Expression: expr}
+			break
 		}
-		return nil
+		stmt = nil
 	default:
-		return p.parseExpressionStatement()
+		stmt = p.parseExpressionStatement()
+	}
+
+	if stmt == nil {
+		p.synchronize()
+	}
+
+	return stmt
+}
+
+func (p *Parser) synchronize() {
+	for !p.curTokenIs(lexer.TOKEN_SEMI) && !p.curTokenIs(lexer.TOKEN_RBRACE) && !p.curTokenIs(lexer.TOKEN_EOF) {
+		p.nextToken()
 	}
 }
 
@@ -739,14 +753,61 @@ func (p *Parser) parseFloatLiteral() ast.Expression {
 }
 
 func (p *Parser) parseStringLiteral() ast.Expression {
-	return &ast.StringLiteral{Token: p.curToken, Value: p.curToken.Literal}
+	return &ast.StringLiteral{Token: p.curToken, Value: unescapeString(p.curToken.Literal)}
+}
+
+func unescapeString(s string) string {
+	var result []byte
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			switch s[i+1] {
+			case 'n':
+				result = append(result, '\n')
+			case 't':
+				result = append(result, '\t')
+			case 'r':
+				result = append(result, '\r')
+			case '\\':
+				result = append(result, '\\')
+			case '"':
+				result = append(result, '"')
+			case '0':
+				result = append(result, '\x00')
+			default:
+				result = append(result, s[i+1])
+			}
+			i++
+		} else {
+			result = append(result, s[i])
+		}
+	}
+	return string(result)
 }
 
 func (p *Parser) parseCharLiteral() ast.Expression {
 	lit := p.curToken.Literal
 	var r rune
 	if len(lit) > 0 {
-		r = rune(lit[0])
+		if lit[0] == '\\' && len(lit) > 1 {
+			switch lit[1] {
+			case 'n':
+				r = '\n'
+			case 't':
+				r = '\t'
+			case 'r':
+				r = '\r'
+			case '\\':
+				r = '\\'
+			case '\'':
+				r = '\''
+			case '0':
+				r = '\x00'
+			default:
+				r = rune(lit[1])
+			}
+		} else {
+			r = rune(lit[0])
+		}
 	}
 	return &ast.CharLiteral{Token: p.curToken, Value: r}
 }
@@ -1135,9 +1196,7 @@ func (p *Parser) parseInterpolatedString() ast.Expression {
 			parsedExpr := exprParser.parseExpression(LOWEST)
 
 			if len(exprParser.Errors()) > 0 {
-				for _, err := range exprParser.Errors() {
-					p.errors = append(p.errors, err)
-				}
+				p.errors = append(p.errors, exprParser.Errors()...)
 			}
 
 			if parsedExpr != nil {

@@ -34,7 +34,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "usage: carv run <file.carv>")
 			os.Exit(1)
 		}
-		runFile(os.Args[2])
+		runFile(os.Args[2], os.Args[3:])
 	case "build":
 		if len(os.Args) < 3 {
 			fmt.Fprintln(os.Stderr, "usage: carv build <file.carv>")
@@ -53,7 +53,7 @@ func main() {
 		initProject()
 	default:
 		if strings.HasSuffix(os.Args[1], ".carv") {
-			runFile(os.Args[1])
+			runFile(os.Args[1], os.Args[2:])
 		} else {
 			fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 			os.Exit(1)
@@ -100,7 +100,7 @@ func initProject() {
 	}
 
 	srcDir := filepath.Join(cwd, "src")
-	if err := os.MkdirAll(srcDir, 0755); err != nil {
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "error creating src directory: %s\n", err)
 		os.Exit(1)
 	}
@@ -116,7 +116,7 @@ fn main() {
 
 main();
 `
-		if err := os.WriteFile(mainFile, []byte(mainContent), 0644); err != nil {
+		if err := os.WriteFile(mainFile, []byte(mainContent), 0o644); err != nil {
 			fmt.Fprintf(os.Stderr, "error creating main.carv: %s\n", err)
 			os.Exit(1)
 		}
@@ -129,15 +129,24 @@ main();
 	fmt.Println("  carv run src/main.carv")
 }
 
-func runFile(filename string) {
+func runFile(filename string, programArgs []string) {
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error reading file: %s\n", err)
 		os.Exit(1)
 	}
 
-	absPath, _ := filepath.Abs(filename)
-	projectRoot, _ := module.FindProjectRoot(filepath.Dir(absPath))
+	absPath, err := filepath.Abs(filename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to resolve path: %s\n", err)
+		absPath = filename
+	}
+
+	projectRoot, err := module.FindProjectRoot(filepath.Dir(absPath))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to find project root: %s\n", err)
+		projectRoot = filepath.Dir(absPath)
+	}
 
 	cfg, err := module.LoadConfig(projectRoot)
 	if err != nil {
@@ -151,6 +160,7 @@ func runFile(filename string) {
 
 	eval.SetModuleLoader(loader)
 	eval.SetCurrentFile(absPath)
+	eval.SetArgs(programArgs)
 
 	l := lexer.New(string(content))
 	p := parser.New(l)
@@ -289,7 +299,7 @@ func buildFile(filename string) {
 	cFile := baseName + ".c"
 	outFile := baseName
 
-	if err := os.WriteFile(cFile, []byte(cCode), 0644); err != nil {
+	if err := os.WriteFile(cFile, []byte(cCode), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "error writing C file: %s\n", err)
 		os.Exit(1)
 	}
@@ -315,8 +325,8 @@ func runCmd(name string, args ...string) error {
 		Stderr: os.Stderr,
 	}
 
-	if filepath, err := exec.LookPath(name); err == nil {
-		cmd.Path = filepath
+	if execPath, err := exec.LookPath(name); err == nil {
+		cmd.Path = execPath
 	}
 
 	return cmd.Run()

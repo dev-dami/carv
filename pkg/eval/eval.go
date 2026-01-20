@@ -295,6 +295,8 @@ func evalInfixExpression(operator string, left, right Object) Object {
 		return evalFloatInfixExpression(operator, left, right)
 	case left.Type() == STRING_OBJ && right.Type() == STRING_OBJ:
 		return evalStringInfixExpression(operator, left, right)
+	case left.Type() == CHAR_OBJ && right.Type() == CHAR_OBJ:
+		return evalCharInfixExpression(operator, left, right)
 	case operator == "==":
 		return nativeBoolToBooleanObject(left == right)
 	case operator == "!=":
@@ -418,6 +420,28 @@ func evalStringInfixExpression(operator string, left, right Object) Object {
 	}
 }
 
+func evalCharInfixExpression(operator string, left, right Object) Object {
+	leftVal := left.(*Char).Value
+	rightVal := right.(*Char).Value
+
+	switch operator {
+	case "==":
+		return nativeBoolToBooleanObject(leftVal == rightVal)
+	case "!=":
+		return nativeBoolToBooleanObject(leftVal != rightVal)
+	case "<":
+		return nativeBoolToBooleanObject(leftVal < rightVal)
+	case ">":
+		return nativeBoolToBooleanObject(leftVal > rightVal)
+	case "<=":
+		return nativeBoolToBooleanObject(leftVal <= rightVal)
+	case ">=":
+		return nativeBoolToBooleanObject(leftVal >= rightVal)
+	default:
+		return &Error{Message: "unknown operator: CHAR " + operator + " CHAR"}
+	}
+}
+
 func evalPipeExpression(node *ast.PipeExpression, env *Environment) Object {
 	left := Eval(node.Left, env)
 	if isError(left) {
@@ -470,6 +494,10 @@ func evalAssignExpression(node *ast.AssignExpression, env *Environment) Object {
 
 	if memberExpr, ok := node.Left.(*ast.MemberExpression); ok {
 		return evalMemberAssignment(memberExpr, node.Operator, val, env)
+	}
+
+	if indexExpr, ok := node.Left.(*ast.IndexExpression); ok {
+		return evalIndexAssignment(indexExpr, node.Operator, val, env)
 	}
 
 	ident, ok := node.Left.(*ast.Identifier)
@@ -548,6 +576,90 @@ func evalMemberAssignment(node *ast.MemberExpression, operator string, val Objec
 	return newVal
 }
 
+func evalIndexAssignment(node *ast.IndexExpression, operator string, val Object, env *Environment) Object {
+	left := Eval(node.Left, env)
+	if isError(left) {
+		return left
+	}
+
+	index := Eval(node.Index, env)
+	if isError(index) {
+		return index
+	}
+
+	switch obj := left.(type) {
+	case *Array:
+		idx, ok := index.(*Integer)
+		if !ok {
+			return &Error{Message: "array index must be an integer"}
+		}
+		if idx.Value < 0 || idx.Value >= int64(len(obj.Elements)) {
+			return &Error{Message: "array index out of bounds"}
+		}
+
+		var newVal Object
+		switch operator {
+		case "=":
+			newVal = val
+		case "+=":
+			newVal = evalInfixExpression("+", obj.Elements[idx.Value], val)
+		case "-=":
+			newVal = evalInfixExpression("-", obj.Elements[idx.Value], val)
+		case "*=":
+			newVal = evalInfixExpression("*", obj.Elements[idx.Value], val)
+		case "/=":
+			newVal = evalInfixExpression("/", obj.Elements[idx.Value], val)
+		default:
+			return &Error{Message: "unknown assignment operator: " + operator}
+		}
+
+		if isError(newVal) {
+			return newVal
+		}
+
+		obj.Elements[idx.Value] = newVal
+		return newVal
+
+	case *Map:
+		hashKey, ok := index.(Hashable)
+		if !ok {
+			return &Error{Message: "unusable as hash key: " + string(index.Type())}
+		}
+
+		var newVal Object
+		existing, exists := obj.Pairs[hashKey.HashKey()]
+		if operator == "=" {
+			newVal = val
+		} else {
+			if !exists {
+				return &Error{Message: "key does not exist in map"}
+			}
+			switch operator {
+			case "+=":
+				newVal = evalInfixExpression("+", existing.Value, val)
+			case "-=":
+				newVal = evalInfixExpression("-", existing.Value, val)
+			case "*=":
+				newVal = evalInfixExpression("*", existing.Value, val)
+			case "/=":
+				newVal = evalInfixExpression("/", existing.Value, val)
+			default:
+				return &Error{Message: "unknown assignment operator: " + operator}
+			}
+		}
+
+		if isError(newVal) {
+			return newVal
+		}
+
+		obj.Pairs[hashKey.HashKey()] = MapPair{Key: index, Value: newVal}
+		return newVal
+
+	default:
+		return &Error{Message: "index assignment not supported for " + string(left.Type())}
+	}
+}
+
 func evalIfExpression(ie *ast.IfExpression, env *Environment) Object {
 	condition := Eval(ie.Condition, env)
 	if isError(condition) {
@@ -556,11 +668,11 @@ func evalIfExpression(ie *ast.IfExpression, env *Environment) Object {
 
 	if isTruthy(condition) {
 		return Eval(ie.Consequence, env)
-	} else if ie.Alternative != nil {
-		return Eval(ie.Alternative, env)
-	} else {
-		return NIL
 	}
+	if ie.Alternative != nil {
+		return Eval(ie.Alternative, env)
+	}
+	return NIL
 }
 
 func evalForStatement(node *ast.ForStatement, env *Environment) Object {
@@ -707,9 +819,9 @@ func evalMapIndexExpression(mapObj, index Object) Object {
 func evalArrayIndexExpression(array, index Object) Object {
 	arrayObject := array.(*Array)
 	idx := index.(*Integer).Value
-	max := int64(len(arrayObject.Elements) - 1)
+	maxIdx := int64(len(arrayObject.Elements) - 1)
 
-	if idx < 0 || idx > max {
+	if idx < 0 || idx > maxIdx {
 		return NIL
 	}
 
@@ -719,9 +831,9 @@ func evalArrayIndexExpression(array, index Object) Object {
 func evalStringIndexExpression(str, index Object) Object {
 	stringObject := str.(*String)
 	idx := index.(*Integer).Value
-	max := int64(len(stringObject.Value) - 1)
+	maxIdx := int64(len(stringObject.Value) - 1)
 
-	if idx < 0 || idx > max {
+	if idx < 0 || idx > maxIdx {
 		return NIL
 	}
 
