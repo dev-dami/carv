@@ -1,41 +1,51 @@
 # Carv
 
-An ambitious little programming language I've been tinkering with. It compiles to C, has a pipe operator I really like, and I'm slowly working toward making it self-hosted (writing the Carv compiler in Carv itself).
+An ambitious little programming language I've been tinkering with.
 
-This is very much a hobby project so expect some rough edges, half-baked features, and occasional breaking changes as I figure things out.
+---
 
-## What's Working
+## The Story
 
-- Static typing with type inference
-- Pipe operator (`|>`) for chaining function calls
+This project has been a long time coming. Back in September last year, I started working on something called **dyms** (Dynamic Yet Minimal Scripts) - first in Go, then rewrote it in Rust, then... gave up. Life happened, motivation faded, the usual.
+
+Fast forward to now - I'm back at it. Ported what I had to Go, cleaned things up, and renamed it Carv. The goal is still the same: build a language that compiles to C, eventually make it self-hosted (write the Carv compiler in Carv itself).
+
+We'll see how far I get this time.
+
+---
+
+## What It Does
+
+Carv compiles to C and runs natively. It has a tree-walking interpreter too for quick testing.
+
+Features that actually work:
+- Static typing with inference
+- Pipe operator (`|>`) - my favorite part
 - Classes with methods
 - Result types (`Ok`/`Err`) with pattern matching
 - Hash maps
-- Compiles to C, runs natively
-- Tree-walking interpreter for quick iteration
+- Basic standard library
 
-## Quick Look at the Syntax
+---
+
+## Quick Look
 
 ```carv
-// pipe operator - probably my favorite feature
-let result = [1, 2, 3, 4, 5]
-    |> map(fn(x) { x * 2; })
-    |> filter(fn(x) { x > 4; })
-    |> print;
+// pipes make everything nicer
+10 |> double |> add(5) |> print;
 
-// result types for error handling
-fn divide(a: int, b: int) -> Result {
+// error handling without exceptions
+fn divide(a: int, b: int) {
     if b == 0 {
-        return Err("division by zero");
+        return Err("nope");
     }
     return Ok(a / b);
 }
 
-let x = divide(10, 2)?;  // unwraps Ok or returns Err
+let x = divide(10, 2)?;
 
 // hash maps
 let scores = {"alice": 100, "bob": 85};
-print(scores["alice"]);
 
 // classes
 class Counter {
@@ -46,9 +56,9 @@ class Counter {
 }
 ```
 
-## Building
+---
 
-You'll need Go installed.
+## Building
 
 ```bash
 git clone https://github.com/dev-dami/carv
@@ -56,50 +66,39 @@ cd carv
 make build
 ```
 
-## Usage
-
+Then:
 ```bash
-# run with interpreter
-./build/carv run yourfile.carv
-
-# compile to native binary
-./build/carv build yourfile.carv
-
-# see the generated C
-./build/carv emit-c yourfile.carv
-
-# repl for messing around
-./build/carv repl
+./build/carv run file.carv      # interpret
+./build/carv build file.carv    # compile to binary
+./build/carv repl               # mess around
 ```
 
-## Project Status
+---
 
-This is a learning project. I started it to understand how compilers work, and I keep adding features as I learn more. The end goal is to make it self-hosted - writing the Carv compiler in Carv.
+## Where Things Stand
 
-Current focus:
-- [x] Core language (lexer, parser, type checker)
-- [x] Tree-walking interpreter
-- [x] C code generation
-- [x] Result types and pattern matching
-- [x] Classes
-- [x] Hash maps
-- [ ] Module/import system
-- [ ] Self-hosting (the fun part)
+- [x] Lexer, parser, type checker
+- [x] Interpreter
+- [x] C codegen
+- [x] Result types, classes, maps
+- [ ] Module system
+- [ ] Self-hosting
 
-## Documentation
+---
 
-- [Language Guide](docs/language.md) - syntax and features
-- [Architecture](docs/architecture.md) - how the compiler works
-- [Built-in Functions](docs/builtins.md) - standard library reference
+## Docs
 
-## Syntax Notes
+- [Language Guide](docs/language.md)
+- [Architecture](docs/architecture.md)
+- [Built-ins](docs/builtins.md)
+- [Contributing](CONTRIBUTING.md)
 
-Semicolons are required (I know, I know). The syntax is roughly C-like with some Rust-isms for error handling.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. This is mainly a personal project but feel free to open issues if you find bugs or have ideas.
+---
 
 ## License
 
 MIT
+
+---
+
+*This is a hobby project. I work on it when I have the energy. No promises, no timelines.*
