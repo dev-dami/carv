@@ -739,14 +739,61 @@ func (p *Parser) parseFloatLiteral() ast.Expression {
 }
 
 func (p *Parser) parseStringLiteral() ast.Expression {
-	return &ast.StringLiteral{Token: p.curToken, Value: p.curToken.Literal}
+	return &ast.StringLiteral{Token: p.curToken, Value: unescapeString(p.curToken.Literal)}
+}
+
+func unescapeString(s string) string {
+	var result []byte
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			switch s[i+1] {
+			case 'n':
+				result = append(result, '\n')
+			case 't':
+				result = append(result, '\t')
+			case 'r':
+				result = append(result, '\r')
+			case '\\':
+				result = append(result, '\\')
+			case '"':
+				result = append(result, '"')
+			case '0':
+				result = append(result, '\x00')
+			default:
+				result = append(result, s[i+1])
+			}
+			i++
+		} else {
+			result = append(result, s[i])
+		}
+	}
+	return string(result)
 }
 
 func (p *Parser) parseCharLiteral() ast.Expression {
 	lit := p.curToken.Literal
 	var r rune
 	if len(lit) > 0 {
-		r = rune(lit[0])
+		if lit[0] == '\\' && len(lit) > 1 {
+			switch lit[1] {
+			case 'n':
+				r = '\n'
+			case 't':
+				r = '\t'
+			case 'r':
+				r = '\r'
+			case '\\':
+				r = '\\'
+			case '\'':
+				r = '\''
+			case '0':
+				r = '\x00'
+			default:
+				r = rune(lit[1])
+			}
+		} else {
+			r = rune(lit[0])
+		}
 	}
 	return &ast.CharLiteral{Token: p.curToken, Value: r}
 }

@@ -78,6 +78,13 @@ func (c *Checker) defineBuiltins() {
 	c.scope.Define("has_key", &FunctionType{Params: []Type{Any, Any}, Return: Bool})
 	c.scope.Define("delete", &FunctionType{Params: []Type{Any, Any}, Return: Any})
 	c.scope.Define("set", &FunctionType{Params: []Type{Any, Any, Any}, Return: Any})
+	c.scope.Define("args", &FunctionType{Params: []Type{}, Return: &ArrayType{Element: String}})
+	c.scope.Define("exec", &FunctionType{Params: []Type{Any}, Return: Int})
+	c.scope.Define("exec_output", &FunctionType{Params: []Type{Any}, Return: Any})
+	c.scope.Define("mkdir", &FunctionType{Params: []Type{String}, Return: Void})
+	c.scope.Define("append_file", &FunctionType{Params: []Type{String, String}, Return: Void})
+	c.scope.Define("getenv", &FunctionType{Params: []Type{String}, Return: String})
+	c.scope.Define("setenv", &FunctionType{Params: []Type{String, String}, Return: Void})
 }
 
 func (c *Checker) Errors() []string {

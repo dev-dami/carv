@@ -1,0 +1,522 @@
+// Carv Lexer - Written in Carv
+// Proof of concept for self-hosting
+
+// Token types as constants
+const TOKEN_ILLEGAL = 0;
+const TOKEN_EOF = 1;
+const TOKEN_IDENT = 2;
+const TOKEN_INT = 3;
+const TOKEN_FLOAT = 4;
+const TOKEN_STRING = 5;
+const TOKEN_CHAR = 6;
+
+// Operators
+const TOKEN_PLUS = 10;
+const TOKEN_MINUS = 11;
+const TOKEN_STAR = 12;
+const TOKEN_SLASH = 13;
+const TOKEN_PERCENT = 14;
+const TOKEN_BANG = 15;
+const TOKEN_ASSIGN = 16;
+const TOKEN_EQ = 17;
+const TOKEN_NE = 18;
+const TOKEN_LT = 19;
+const TOKEN_LE = 20;
+const TOKEN_GT = 21;
+const TOKEN_GE = 22;
+const TOKEN_AND = 23;
+const TOKEN_OR = 24;
+const TOKEN_AMPERSAND = 25;
+const TOKEN_VBAR = 26;
+const TOKEN_CARET = 27;
+const TOKEN_TILDE = 28;
+const TOKEN_QUESTION = 29;
+
+// Delimiters
+const TOKEN_LPAREN = 30;
+const TOKEN_RPAREN = 31;
+const TOKEN_LBRACE = 32;
+const TOKEN_RBRACE = 33;
+const TOKEN_LBRACKET = 34;
+const TOKEN_RBRACKET = 35;
+const TOKEN_COMMA = 36;
+const TOKEN_DOT = 37;
+const TOKEN_COLON = 38;
+const TOKEN_SEMI = 39;
+const TOKEN_ARROW = 40;
+const TOKEN_FAT_ARROW = 41;
+const TOKEN_PIPE = 42;
+
+// Keywords
+const TOKEN_FN = 50;
+const TOKEN_LET = 51;
+const TOKEN_CONST = 52;
+const TOKEN_IF = 53;
+const TOKEN_ELSE = 54;
+const TOKEN_MATCH = 55;
+const TOKEN_FOR = 56;
+const TOKEN_WHILE = 57;
+const TOKEN_BREAK = 59;
+const TOKEN_CONTINUE = 60;
+const TOKEN_RETURN = 61;
+const TOKEN_CLASS = 62;
+const TOKEN_PUB = 63;
+const TOKEN_NEW = 64;
+const TOKEN_SELF = 65;
+const TOKEN_TRUE = 66;
+const TOKEN_FALSE = 67;
+const TOKEN_NIL = 68;
+const TOKEN_OK = 69;
+const TOKEN_ERR = 70;
+const TOKEN_REQUIRE = 71;
+const TOKEN_FROM = 72;
+const TOKEN_IN = 73;
+const TOKEN_MUT = 74;
+
+// Type keywords
+const TOKEN_INT_TYPE = 80;
+const TOKEN_FLOAT_TYPE = 81;
+const TOKEN_BOOL_TYPE = 82;
+const TOKEN_STRING_TYPE = 83;
+const TOKEN_CHAR_TYPE = 84;
+const TOKEN_VOID_TYPE = 85;
+
+// Keywords map
+let keywords = {
+    "fn": TOKEN_FN,
+    "let": TOKEN_LET,
+    "const": TOKEN_CONST,
+    "if": TOKEN_IF,
+    "else": TOKEN_ELSE,
+    "match": TOKEN_MATCH,
+    "for": TOKEN_FOR,
+    "while": TOKEN_WHILE,
+    "break": TOKEN_BREAK,
+    "continue": TOKEN_CONTINUE,
+    "return": TOKEN_RETURN,
+    "class": TOKEN_CLASS,
+    "pub": TOKEN_PUB,
+    "new": TOKEN_NEW,
+    "self": TOKEN_SELF,
+    "true": TOKEN_TRUE,
+    "false": TOKEN_FALSE,
+    "nil": TOKEN_NIL,
+    "Ok": TOKEN_OK,
+    "Err": TOKEN_ERR,
+    "require": TOKEN_REQUIRE,
+    "from": TOKEN_FROM,
+    "in": TOKEN_IN,
+    "mut": TOKEN_MUT,
+    "int": TOKEN_INT_TYPE,
+    "float": TOKEN_FLOAT_TYPE,
+    "bool": TOKEN_BOOL_TYPE,
+    "string": TOKEN_STRING_TYPE,
+    "char": TOKEN_CHAR_TYPE,
+    "void": TOKEN_VOID_TYPE
+};
+
+// Token names for display
+let token_names = {
+    0: "ILLEGAL",
+    1: "EOF",
+    2: "IDENT",
+    3: "INT",
+    4: "FLOAT",
+    5: "STRING",
+    6: "CHAR",
+    10: "+",
+    11: "-",
+    12: "*",
+    13: "/",
+    14: "%",
+    15: "!",
+    16: "=",
+    17: "==",
+    18: "!=",
+    19: "<",
+    20: "<=",
+    21: ">",
+    22: ">=",
+    23: "&&",
+    24: "||",
+    25: "&",
+    26: "|",
+    27: "^",
+    28: "~",
+    29: "?",
+    30: "(",
+    31: ")",
+    32: "{",
+    33: "}",
+    34: "[",
+    35: "]",
+    36: ",",
+    37: ".",
+    38: ":",
+    39: ";",
+    40: "->",
+    41: "=>",
+    42: "|>",
+    50: "fn",
+    51: "let",
+    52: "const",
+    53: "if",
+    54: "else",
+    55: "match",
+    56: "for",
+    57: "while",
+    59: "break",
+    60: "continue",
+    61: "return",
+    62: "class",
+    63: "pub",
+    64: "new",
+    65: "self",
+    66: "true",
+    67: "false",
+    68: "nil",
+    69: "Ok",
+    70: "Err",
+    71: "require",
+    72: "from",
+    73: "in",
+    74: "mut",
+    80: "int",
+    81: "float",
+    82: "bool",
+    83: "string",
+    84: "char",
+    85: "void"
+};
+
+fn token_name(tok_type: int) -> string {
+    if has_key(token_names, tok_type) {
+        return token_names[tok_type];
+    }
+    return f"UNKNOWN({tok_type})";
+}
+
+// Token class
+class Token {
+    tok_type: int = 0
+    literal: string = ""
+    line: int = 1
+    column: int = 1
+}
+
+fn make_token(tok_type: int, literal: string, line: int, column: int) {
+    let tok = new Token;
+    tok.tok_type = tok_type;
+    tok.literal = literal;
+    tok.line = line;
+    tok.column = column;
+    return tok;
+}
+
+fn is_letter(ch: char) -> bool {
+    let c = ord(ch);
+    return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95;
+}
+
+fn is_digit(ch: char) -> bool {
+    let c = ord(ch);
+    return c >= 48 && c <= 57;
+}
+
+fn is_whitespace(ch: char) -> bool {
+    return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r';
+}
+
+fn lookup_ident(ident: string) -> int {
+    if has_key(keywords, ident) {
+        return keywords[ident];
+    }
+    return TOKEN_IDENT;
+}
+
+// Print token info
+fn print_token(tok: Token) {
+    let name = token_name(tok.tok_type);
+    if tok.tok_type == TOKEN_IDENT || tok.tok_type == TOKEN_INT || 
+       tok.tok_type == TOKEN_FLOAT || tok.tok_type == TOKEN_STRING ||
+       tok.tok_type == TOKEN_CHAR {
+        println(f"{tok.line}:{tok.column} {name} '{tok.literal}'");
+    } else {
+        println(f"{tok.line}:{tok.column} {name}");
+    }
+}
+
+// Read next character helper
+fn read_next(input: string, read_pos: int, input_len: int) -> char {
+    if read_pos < input_len {
+        return char_at(input, read_pos);
+    }
+    return '\0';
+}
+
+// Main tokenize function
+fn tokenize(input: string) {
+    let tokens = [];
+    let i = 0;
+    let line = 1;
+    let col = 1;
+    let input_len = len(input);
+    
+    while i < input_len {
+        let ch = char_at(input, i);
+        let tok_line = line;
+        let tok_col = col;
+        
+        // Skip whitespace
+        if is_whitespace(ch) {
+            if ch == '\n' {
+                line = line + 1;
+                col = 0;
+            }
+            i = i + 1;
+            col = col + 1;
+            continue;
+        }
+        
+        // Comments
+        if ch == '/' && i + 1 < input_len && char_at(input, i + 1) == '/' {
+            while i < input_len && char_at(input, i) != '\n' {
+                i = i + 1;
+            }
+            continue;
+        }
+        
+        // Identifiers and keywords
+        if is_letter(ch) {
+            let start = i;
+            while i < input_len && (is_letter(char_at(input, i)) || is_digit(char_at(input, i))) {
+                i = i + 1;
+                col = col + 1;
+            }
+            let ident = substr(input, start, i);
+            let ident_type = lookup_ident(ident);
+            tokens = push(tokens, make_token(ident_type, ident, tok_line, tok_col));
+            continue;
+        }
+        
+        // Numbers
+        if is_digit(ch) {
+            let start = i;
+            let is_float = false;
+            while i < input_len && is_digit(char_at(input, i)) {
+                i = i + 1;
+                col = col + 1;
+            }
+            if i < input_len && char_at(input, i) == '.' && i + 1 < input_len && is_digit(char_at(input, i + 1)) {
+                is_float = true;
+                i = i + 1;
+                col = col + 1;
+                while i < input_len && is_digit(char_at(input, i)) {
+                    i = i + 1;
+                    col = col + 1;
+                }
+            }
+            let literal = substr(input, start, i);
+            if is_float {
+                tokens = push(tokens, make_token(TOKEN_FLOAT, literal, tok_line, tok_col));
+            } else {
+                tokens = push(tokens, make_token(TOKEN_INT, literal, tok_line, tok_col));
+            }
+            continue;
+        }
+        
+        // String literals
+        if ch == '"' {
+            i = i + 1;
+            col = col + 1;
+            let start = i;
+            while i < input_len && char_at(input, i) != '"' {
+                if char_at(input, i) == '\\' && i + 1 < input_len {
+                    i = i + 2;
+                    col = col + 2;
+                } else {
+                    i = i + 1;
+                    col = col + 1;
+                }
+            }
+            let str_val = substr(input, start, i);
+            i = i + 1;
+            col = col + 1;
+            tokens = push(tokens, make_token(TOKEN_STRING, str_val, tok_line, tok_col));
+            continue;
+        }
+        
+        // Char literals
+        if ch == '\'' {
+            i = i + 1;
+            col = col + 1;
+            let char_val = "";
+            if i < input_len {
+                if char_at(input, i) == '\\' && i + 1 < input_len {
+                    let esc = char_at(input, i + 1);
+                    if esc == 'n' {
+                        char_val = "\n";
+                    } else {
+                        if esc == 't' {
+                            char_val = "\t";
+                        } else {
+                            if esc == 'r' {
+                                char_val = "\r";
+                            } else {
+                                char_val = str(esc);
+                            }
+                        }
+                    }
+                    i = i + 2;
+                    col = col + 2;
+                } else {
+                    char_val = str(char_at(input, i));
+                    i = i + 1;
+                    col = col + 1;
+                }
+            }
+            if i < input_len && char_at(input, i) == '\'' {
+                i = i + 1;
+                col = col + 1;
+            }
+            tokens = push(tokens, make_token(TOKEN_CHAR, char_val, tok_line, tok_col));
+            continue;
+        }
+        
+        // Two-character operators
+        let peek = '\0';
+        if i + 1 < input_len {
+            peek = char_at(input, i + 1);
+        }
+        
+        if ch == '-' && peek == '>' {
+            tokens = push(tokens, make_token(TOKEN_ARROW, "->", tok_line, tok_col));
+            i = i + 2;
+            col = col + 2;
+            continue;
+        }
+        if ch == '!' && peek == '=' {
+            tokens = push(tokens, make_token(TOKEN_NE, "!=", tok_line, tok_col));
+            i = i + 2;
+            col = col + 2;
+            continue;
+        }
+        if ch == '=' && peek == '=' {
+            tokens = push(tokens, make_token(TOKEN_EQ, "==", tok_line, tok_col));
+            i = i + 2;
+            col = col + 2;
+            continue;
+        }
+        if ch == '=' && peek == '>' {
+            tokens = push(tokens, make_token(TOKEN_FAT_ARROW, "=>", tok_line, tok_col));
+            i = i + 2;
+            col = col + 2;
+            continue;
+        }
+        if ch == '<' && peek == '=' {
+            tokens = push(tokens, make_token(TOKEN_LE, "<=", tok_line, tok_col));
+            i = i + 2;
+            col = col + 2;
+            continue;
+        }
+        if ch == '>' && peek == '=' {
+            tokens = push(tokens, make_token(TOKEN_GE, ">=", tok_line, tok_col));
+            i = i + 2;
+            col = col + 2;
+            continue;
+        }
+        if ch == '&' && peek == '&' {
+            tokens = push(tokens, make_token(TOKEN_AND, "&&", tok_line, tok_col));
+            i = i + 2;
+            col = col + 2;
+            continue;
+        }
+        if ch == '|' && peek == '|' {
+            tokens = push(tokens, make_token(TOKEN_OR, "||", tok_line, tok_col));
+            i = i + 2;
+            col = col + 2;
+            continue;
+        }
+        if ch == '|' && peek == '>' {
+            tokens = push(tokens, make_token(TOKEN_PIPE, "|>", tok_line, tok_col));
+            i = i + 2;
+            col = col + 2;
+            continue;
+        }
+        
+        // Single character tokens
+        let tok_type = TOKEN_ILLEGAL;
+        if ch == '+' { tok_type = TOKEN_PLUS; }
+        if ch == '-' { tok_type = TOKEN_MINUS; }
+        if ch == '*' { tok_type = TOKEN_STAR; }
+        if ch == '/' { tok_type = TOKEN_SLASH; }
+        if ch == '%' { tok_type = TOKEN_PERCENT; }
+        if ch == '!' { tok_type = TOKEN_BANG; }
+        if ch == '=' { tok_type = TOKEN_ASSIGN; }
+        if ch == '<' { tok_type = TOKEN_LT; }
+        if ch == '>' { tok_type = TOKEN_GT; }
+        if ch == '&' { tok_type = TOKEN_AMPERSAND; }
+        if ch == '|' { tok_type = TOKEN_VBAR; }
+        if ch == '^' { tok_type = TOKEN_CARET; }
+        if ch == '~' { tok_type = TOKEN_TILDE; }
+        if ch == '?' { tok_type = TOKEN_QUESTION; }
+        if ch == '(' { tok_type = TOKEN_LPAREN; }
+        if ch == ')' { tok_type = TOKEN_RPAREN; }
+        if ch == '{' { tok_type = TOKEN_LBRACE; }
+        if ch == '}' { tok_type = TOKEN_RBRACE; }
+        if ch == '[' { tok_type = TOKEN_LBRACKET; }
+        if ch == ']' { tok_type = TOKEN_RBRACKET; }
+        if ch == ',' { tok_type = TOKEN_COMMA; }
+        if ch == '.' { tok_type = TOKEN_DOT; }
+        if ch == ':' { tok_type = TOKEN_COLON; }
+        if ch == ';' { tok_type = TOKEN_SEMI; }
+        
+        tokens = push(tokens, make_token(tok_type, str(ch), tok_line, tok_col));
+        i = i + 1;
+        col = col + 1;
+    }
+    
+    // Add EOF token
+    tokens = push(tokens, make_token(TOKEN_EOF, "", line, col));
+    
+    return tokens;
+}
+
+// Demo: tokenize a simple Carv program
+fn main() {
+    let program_args = args();
+    
+    if len(program_args) > 0 {
+        // Tokenize a file
+        let filename = program_args[0];
+        let content = read_file(filename);
+        let tokens = tokenize(content);
+        
+        println(f"Tokenizing {filename}:");
+        println("---");
+        
+        for tok in tokens {
+            print_token(tok);
+        }
+    } else {
+        // Demo with inline code
+        let code = "fn add(a: int, b: int) -> int {
+    return a + b;
+}
+
+let x = add(1, 2);
+";
+        
+        println("Tokenizing demo code:");
+        println("---");
+        println(code);
+        println("---");
+        
+        let tokens = tokenize(code);
+        for tok in tokens {
+            print_token(tok);
+        }
+    }
+}
+
+main();

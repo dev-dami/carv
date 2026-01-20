@@ -34,7 +34,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "usage: carv run <file.carv>")
 			os.Exit(1)
 		}
-		runFile(os.Args[2])
+		runFile(os.Args[2], os.Args[3:])
 	case "build":
 		if len(os.Args) < 3 {
 			fmt.Fprintln(os.Stderr, "usage: carv build <file.carv>")
@@ -53,7 +53,7 @@ func main() {
 		initProject()
 	default:
 		if strings.HasSuffix(os.Args[1], ".carv") {
-			runFile(os.Args[1])
+			runFile(os.Args[1], os.Args[2:])
 		} else {
 			fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 			os.Exit(1)
@@ -129,7 +129,7 @@ main();
 	fmt.Println("  carv run src/main.carv")
 }
 
-func runFile(filename string) {
+func runFile(filename string, programArgs []string) {
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error reading file: %s\n", err)
@@ -151,6 +151,7 @@ func runFile(filename string) {
 
 	eval.SetModuleLoader(loader)
 	eval.SetCurrentFile(absPath)
+	eval.SetArgs(programArgs)
 
 	l := lexer.New(string(content))
 	p := parser.New(l)
