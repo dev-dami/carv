@@ -112,6 +112,19 @@ func (i *InterfaceType) Equals(other Type) bool {
 	return false
 }
 
+type MapType struct {
+	Key   Type
+	Value Type
+}
+
+func (m *MapType) String() string { return "{" + m.Key.String() + ": " + m.Value.String() + "}" }
+func (m *MapType) Equals(other Type) bool {
+	if o, ok := other.(*MapType); ok {
+		return m.Key.Equals(o.Key) && m.Value.Equals(o.Value)
+	}
+	return false
+}
+
 var (
 	Int    = &BasicType{Name: "int"}
 	Float  = &BasicType{Name: "float"}

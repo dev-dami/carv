@@ -1,81 +1,99 @@
-# Carv Programming Language
+# Carv
 
-Carv is a memory-safe, concurrent scripting language that compiles to C and then to native binaries. It features a clean, Lua-inspired syntax with curly braces and a powerful pipe operator for functional data flow.
+A little programming language I've been tinkering with. It compiles to C, has a pipe operator I really like, and I'm slowly working toward making it self-hosted (writing the Carv compiler in Carv itself).
 
-## Features
+This is very much a hobby project - expect rough edges, half-baked features, and occasional breaking changes as I figure things out.
 
-- **Static Typing**: Strong type system with type inference.
-- **Pipe Operator**: Functional data flow using the `|>` operator.
-- **Multi-paradigm**: Supports both functional and imperative programming styles.
-- **Compiled**: Compiles to C for high performance and portability.
-- **Memory Safe**: Designed with safety in mind.
+## What's Working
 
-## Installation
+- Static typing with type inference
+- Pipe operator (`|>`) for chaining function calls
+- Classes with methods
+- Result types (`Ok`/`Err`) with pattern matching
+- Hash maps
+- Compiles to C, runs natively
+- Tree-walking interpreter for quick iteration
 
-### From Source
+## Quick Look
 
-Ensure you have Go installed on your system.
+```carv
+// pipe operator is my favorite part
+let result = [1, 2, 3, 4, 5]
+    |> map(fn(x) { x * 2; })
+    |> filter(fn(x) { x > 4; })
+    |> print;
 
-```bash
-git clone https://github.com/carv-lang/carv
-cd carv
-go build -o carv ./cmd/carv
+// result types for error handling
+fn divide(a: int, b: int) -> Result {
+    if b == 0 {
+        return Err("division by zero");
+    }
+    return Ok(a / b);
+}
+
+let x = divide(10, 2)?;  // unwraps Ok or returns Err
+
+// hash maps
+let scores = {"alice": 100, "bob": 85};
+print(scores["alice"]);
+
+// classes
+class Counter {
+    value: int = 0
+    fn increment() {
+        self.value = self.value + 1;
+    }
+}
 ```
 
-### Via Go Install
+## Building
+
+You'll need Go installed.
 
 ```bash
-go install github.com/carv-lang/carv/cmd/carv@latest
+git clone https://github.com/dev-dami/carv
+cd carv
+make build
 ```
 
 ## Usage
 
-The `carv` CLI provides several commands:
+```bash
+# run with interpreter
+./build/carv run yourfile.carv
 
-- **run**: Execute a Carv source file using the interpreter.
-  ```bash
-  carv run hello.carv
-  ```
-- **build**: Compile a Carv file to a native binary via C.
-  ```bash
-  carv build hello.carv
-  ```
-- **emit-c**: Output the generated C code for a Carv file.
-  ```bash
-  carv emit-c hello.carv
-  ```
-- **repl**: Start an interactive Read-Eval-Print Loop.
-  ```bash
-  carv repl
-  ```
-- **version**: Show the current version.
-  ```bash
-  carv version
-  ```
+# compile to native binary
+./build/carv build yourfile.carv
 
-## Quick Example
+# see the generated C
+./build/carv emit-c yourfile.carv
 
-```carv
-// Define a function with static types
-fn double(n: int) -> int {
-    return n * 2
-}
-
-fn add(a: int, b: int) -> int {
-    return a + b
-}
-
-let x = 10
-
-// Use the pipe operator for clean data flow
-x |> double |> add(5) |> print
+# repl for messing around
+./build/carv repl
 ```
 
-## Documentation
+## Project Status
 
-- [Language Specification](docs/language.md)
-- [Example Code](examples/)
+This is a learning project. I started it to understand how compilers work, and I keep adding features as I learn more. The end goal is to make it self-hosted - writing the Carv compiler in Carv.
+
+Current focus:
+- [x] Core language (lexer, parser, type checker)
+- [x] Tree-walking interpreter
+- [x] C code generation
+- [x] Result types and pattern matching
+- [x] Classes
+- [x] Hash maps
+- [ ] Module/import system
+- [ ] Self-hosting (the fun part)
+
+## Syntax Notes
+
+Semicolons are required (I know, I know). The syntax is roughly C-like with some Rust-isms for error handling.
+
+## Contributing
+
+This is mainly a personal project but feel free to open issues if you find bugs or have ideas. No promises on response time though - I work on this when I have the energy.
 
 ## License
 
-This project is licensed under the MIT License.
+MIT

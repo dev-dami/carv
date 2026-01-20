@@ -142,6 +142,9 @@ func Eval(node ast.Node, env *Environment) Object {
 		}
 		return &Array{Elements: elements}
 
+	case *ast.MapLiteral:
+		return evalMapLiteral(node, env)
+
 	case *ast.IndexExpression:
 		left := Eval(node.Left, env)
 		if isError(left) {
@@ -669,9 +672,27 @@ func evalIndexExpression(left, index Object) Object {
 		return evalArrayIndexExpression(left, index)
 	case left.Type() == STRING_OBJ && index.Type() == INTEGER_OBJ:
 		return evalStringIndexExpression(left, index)
+	case left.Type() == MAP_OBJ:
+		return evalMapIndexExpression(left, index)
 	default:
 		return &Error{Message: "index operator not supported: " + string(left.Type())}
 	}
+}
+
+func evalMapIndexExpression(mapObj, index Object) Object {
+	m := mapObj.(*Map)
+
+	key, ok := index.(Hashable)
+	if !ok {
+		return &Error{Message: "unusable as hash key: " + string(index.Type())}
+	}
+
+	pair, ok := m.Pairs[key.HashKey()]
+	if !ok {
+		return NIL
+	}
+
+	return pair.Value
 }
 
 func evalArrayIndexExpression(array, index Object) Object {
@@ -981,4 +1002,30 @@ func evalNewExpression(node *ast.NewExpression, env *Environment) Object {
 
 func evalBlockExpression(node *ast.BlockExpression, env *Environment) Object {
 	return evalBlockStatement(node.Block, env)
+}
+
+func evalMapLiteral(node *ast.MapLiteral, env *Environment) Object {
+	pairs := make(map[HashKey]MapPair)
+
+	for keyNode, valueNode := range node.Pairs {
+		key := Eval(keyNode, env)
+		if isError(key) {
+			return key
+		}
+
+		hashKey, ok := key.(Hashable)
+		if !ok {
+			return &Error{Message: "unusable as hash key: " + string(key.Type())}
+		}
+
+		value := Eval(valueNode, env)
+		if isError(value) {
+			return value
+		}
+
+		hashed := hashKey.HashKey()
+		pairs[hashed] = MapPair{Key: key, Value: value}
+	}
+
+	return &Map{Pairs: pairs}
 }

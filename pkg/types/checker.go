@@ -60,6 +60,24 @@ func (c *Checker) defineBuiltins() {
 	c.scope.Define("join", &FunctionType{Params: []Type{Any, String}, Return: String})
 	c.scope.Define("trim", &FunctionType{Params: []Type{String}, Return: String})
 	c.scope.Define("substr", &FunctionType{Params: []Type{String, Int, Int}, Return: String})
+	c.scope.Define("ord", &FunctionType{Params: []Type{Any}, Return: Int})
+	c.scope.Define("chr", &FunctionType{Params: []Type{Int}, Return: Char})
+	c.scope.Define("char_at", &FunctionType{Params: []Type{String, Int}, Return: Char})
+	c.scope.Define("contains", &FunctionType{Params: []Type{String, String}, Return: Bool})
+	c.scope.Define("starts_with", &FunctionType{Params: []Type{String, String}, Return: Bool})
+	c.scope.Define("ends_with", &FunctionType{Params: []Type{String, String}, Return: Bool})
+	c.scope.Define("replace", &FunctionType{Params: []Type{String, String, String}, Return: String})
+	c.scope.Define("index_of", &FunctionType{Params: []Type{String, String}, Return: Int})
+	c.scope.Define("to_upper", &FunctionType{Params: []Type{String}, Return: String})
+	c.scope.Define("to_lower", &FunctionType{Params: []Type{String}, Return: String})
+	c.scope.Define("exit", &FunctionType{Params: []Type{Int}, Return: Void})
+	c.scope.Define("panic", &FunctionType{Params: []Type{Any}, Return: Void})
+	c.scope.Define("type_of", &FunctionType{Params: []Type{Any}, Return: String})
+	c.scope.Define("keys", &FunctionType{Params: []Type{Any}, Return: &ArrayType{Element: Any}})
+	c.scope.Define("values", &FunctionType{Params: []Type{Any}, Return: &ArrayType{Element: Any}})
+	c.scope.Define("has_key", &FunctionType{Params: []Type{Any, Any}, Return: Bool})
+	c.scope.Define("delete", &FunctionType{Params: []Type{Any, Any}, Return: Any})
+	c.scope.Define("set", &FunctionType{Params: []Type{Any, Any, Any}, Return: Any})
 }
 
 func (c *Checker) Errors() []string {
@@ -263,6 +281,8 @@ func (c *Checker) checkExpression(expr ast.Expression) Type {
 		return c.checkCallExpression(e)
 	case *ast.ArrayLiteral:
 		return c.checkArrayLiteral(e)
+	case *ast.MapLiteral:
+		return c.checkMapLiteral(e)
 	case *ast.IndexExpression:
 		return c.checkIndexExpression(e)
 	case *ast.IfExpression:
@@ -443,20 +463,46 @@ func (c *Checker) checkArrayLiteral(e *ast.ArrayLiteral) Type {
 	return &ArrayType{Element: elemType}
 }
 
+func (c *Checker) checkMapLiteral(e *ast.MapLiteral) Type {
+	if len(e.Pairs) == 0 {
+		return &MapType{Key: Any, Value: Any}
+	}
+
+	var keyType, valueType Type
+	for k, v := range e.Pairs {
+		keyType = c.checkExpression(k)
+		valueType = c.checkExpression(v)
+		break
+	}
+
+	for k, v := range e.Pairs {
+		c.checkExpression(k)
+		c.checkExpression(v)
+	}
+
+	return &MapType{Key: keyType, Value: valueType}
+}
+
 func (c *Checker) checkIndexExpression(e *ast.IndexExpression) Type {
 	leftType := c.checkExpression(e.Left)
 	indexType := c.checkExpression(e.Index)
 
-	if !indexType.Equals(Int) {
-		line, col := e.Index.Pos()
-		c.error(line, col, "index must be int, got %s", indexType.String())
-	}
-
 	if arr, ok := leftType.(*ArrayType); ok {
+		if !indexType.Equals(Int) {
+			line, col := e.Index.Pos()
+			c.error(line, col, "array index must be int, got %s", indexType.String())
+		}
 		return arr.Element
 	}
 	if leftType.Equals(String) {
+		if !indexType.Equals(Int) {
+			line, col := e.Index.Pos()
+			c.error(line, col, "string index must be int, got %s", indexType.String())
+		}
 		return Char
+	}
+	if m, ok := leftType.(*MapType); ok {
+		return m.Value
 	}
 
 	return Any

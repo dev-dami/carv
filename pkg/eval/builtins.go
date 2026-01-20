@@ -274,6 +274,297 @@ var builtins = map[string]*Builtin{
 			return &String{Value: str.Value[startIdx:endIdx]}
 		},
 	},
+	"ord": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 1 {
+				return newError("ord() takes exactly 1 argument")
+			}
+			switch arg := args[0].(type) {
+			case *Char:
+				return &Integer{Value: int64(arg.Value)}
+			case *String:
+				if len(arg.Value) == 0 {
+					return newError("ord() requires non-empty string")
+				}
+				return &Integer{Value: int64(arg.Value[0])}
+			default:
+				return newError("ord() requires char or string, got %s", arg.Type())
+			}
+		},
+	},
+	"chr": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 1 {
+				return newError("chr() takes exactly 1 argument")
+			}
+			i, ok := args[0].(*Integer)
+			if !ok {
+				return newError("chr() requires integer, got %s", args[0].Type())
+			}
+			return &Char{Value: rune(i.Value)}
+		},
+	},
+	"char_at": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 2 {
+				return newError("char_at() takes exactly 2 arguments")
+			}
+			str, ok := args[0].(*String)
+			if !ok {
+				return newError("char_at() first argument must be string")
+			}
+			idx, ok := args[1].(*Integer)
+			if !ok {
+				return newError("char_at() second argument must be integer")
+			}
+			i := int(idx.Value)
+			if i < 0 || i >= len(str.Value) {
+				return NIL
+			}
+			return &Char{Value: rune(str.Value[i])}
+		},
+	},
+	"contains": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 2 {
+				return newError("contains() takes exactly 2 arguments")
+			}
+			str, ok := args[0].(*String)
+			if !ok {
+				return newError("contains() first argument must be string")
+			}
+			sub, ok := args[1].(*String)
+			if !ok {
+				return newError("contains() second argument must be string")
+			}
+			if strings.Contains(str.Value, sub.Value) {
+				return TRUE
+			}
+			return FALSE
+		},
+	},
+	"starts_with": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 2 {
+				return newError("starts_with() takes exactly 2 arguments")
+			}
+			str, ok := args[0].(*String)
+			if !ok {
+				return newError("starts_with() first argument must be string")
+			}
+			prefix, ok := args[1].(*String)
+			if !ok {
+				return newError("starts_with() second argument must be string")
+			}
+			if strings.HasPrefix(str.Value, prefix.Value) {
+				return TRUE
+			}
+			return FALSE
+		},
+	},
+	"ends_with": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 2 {
+				return newError("ends_with() takes exactly 2 arguments")
+			}
+			str, ok := args[0].(*String)
+			if !ok {
+				return newError("ends_with() first argument must be string")
+			}
+			suffix, ok := args[1].(*String)
+			if !ok {
+				return newError("ends_with() second argument must be string")
+			}
+			if strings.HasSuffix(str.Value, suffix.Value) {
+				return TRUE
+			}
+			return FALSE
+		},
+	},
+	"replace": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 3 {
+				return newError("replace() takes exactly 3 arguments")
+			}
+			str, ok := args[0].(*String)
+			if !ok {
+				return newError("replace() first argument must be string")
+			}
+			old, ok := args[1].(*String)
+			if !ok {
+				return newError("replace() second argument must be string")
+			}
+			new, ok := args[2].(*String)
+			if !ok {
+				return newError("replace() third argument must be string")
+			}
+			return &String{Value: strings.ReplaceAll(str.Value, old.Value, new.Value)}
+		},
+	},
+	"index_of": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 2 {
+				return newError("index_of() takes exactly 2 arguments")
+			}
+			str, ok := args[0].(*String)
+			if !ok {
+				return newError("index_of() first argument must be string")
+			}
+			sub, ok := args[1].(*String)
+			if !ok {
+				return newError("index_of() second argument must be string")
+			}
+			return &Integer{Value: int64(strings.Index(str.Value, sub.Value))}
+		},
+	},
+	"to_upper": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 1 {
+				return newError("to_upper() takes exactly 1 argument")
+			}
+			str, ok := args[0].(*String)
+			if !ok {
+				return newError("to_upper() argument must be string")
+			}
+			return &String{Value: strings.ToUpper(str.Value)}
+		},
+	},
+	"to_lower": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 1 {
+				return newError("to_lower() takes exactly 1 argument")
+			}
+			str, ok := args[0].(*String)
+			if !ok {
+				return newError("to_lower() argument must be string")
+			}
+			return &String{Value: strings.ToLower(str.Value)}
+		},
+	},
+	"exit": {
+		Fn: func(args ...Object) Object {
+			code := 0
+			if len(args) > 0 {
+				if i, ok := args[0].(*Integer); ok {
+					code = int(i.Value)
+				}
+			}
+			os.Exit(code)
+			return NIL
+		},
+	},
+	"panic": {
+		Fn: func(args ...Object) Object {
+			msg := "panic"
+			if len(args) > 0 {
+				msg = args[0].Inspect()
+			}
+			return newError("panic: %s", msg)
+		},
+	},
+	"type_of": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 1 {
+				return newError("type_of() takes exactly 1 argument")
+			}
+			return &String{Value: string(args[0].Type())}
+		},
+	},
+	"keys": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 1 {
+				return newError("keys() takes exactly 1 argument")
+			}
+			m, ok := args[0].(*Map)
+			if !ok {
+				return newError("keys() requires a map, got %s", args[0].Type())
+			}
+			keys := make([]Object, 0, len(m.Pairs))
+			for _, pair := range m.Pairs {
+				keys = append(keys, pair.Key)
+			}
+			return &Array{Elements: keys}
+		},
+	},
+	"values": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 1 {
+				return newError("values() takes exactly 1 argument")
+			}
+			m, ok := args[0].(*Map)
+			if !ok {
+				return newError("values() requires a map, got %s", args[0].Type())
+			}
+			values := make([]Object, 0, len(m.Pairs))
+			for _, pair := range m.Pairs {
+				values = append(values, pair.Value)
+			}
+			return &Array{Elements: values}
+		},
+	},
+	"has_key": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 2 {
+				return newError("has_key() takes exactly 2 arguments")
+			}
+			m, ok := args[0].(*Map)
+			if !ok {
+				return newError("has_key() first argument must be a map")
+			}
+			key, ok := args[1].(Hashable)
+			if !ok {
+				return newError("has_key() second argument must be hashable")
+			}
+			_, exists := m.Pairs[key.HashKey()]
+			if exists {
+				return TRUE
+			}
+			return FALSE
+		},
+	},
+	"delete": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 2 {
+				return newError("delete() takes exactly 2 arguments")
+			}
+			m, ok := args[0].(*Map)
+			if !ok {
+				return newError("delete() first argument must be a map")
+			}
+			key, ok := args[1].(Hashable)
+			if !ok {
+				return newError("delete() second argument must be hashable")
+			}
+			newPairs := make(map[HashKey]MapPair)
+			for k, v := range m.Pairs {
+				if k != key.HashKey() {
+					newPairs[k] = v
+				}
+			}
+			return &Map{Pairs: newPairs}
+		},
+	},
+	"set": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 3 {
+				return newError("set() takes exactly 3 arguments")
+			}
+			m, ok := args[0].(*Map)
+			if !ok {
+				return newError("set() first argument must be a map")
+			}
+			key, ok := args[1].(Hashable)
+			if !ok {
+				return newError("set() second argument must be hashable")
+			}
+			newPairs := make(map[HashKey]MapPair)
+			for k, v := range m.Pairs {
+				newPairs[k] = v
+			}
+			newPairs[key.HashKey()] = MapPair{Key: args[1], Value: args[2]}
+			return &Map{Pairs: newPairs}
+		},
+	},
 }
 
 func newError(format string, a ...interface{}) *Error {

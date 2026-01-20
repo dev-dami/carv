@@ -1,81 +1,92 @@
-# Carv Language Specification
+# Carv Language Guide
 
-Carv is a statically-typed, concurrent scripting language designed for safety and performance. This document provides a comprehensive overview of the language syntax and features.
+Quick reference for Carv's syntax and features. This is a work in progress - things might change as I figure stuff out.
 
-## Variable Declarations
-
-Carv supports three types of variable declarations:
-
-- `let`: Immutable variable (by default, but can be shadowed).
-- `mut`: Mutable variable.
-- `const`: Constant value that cannot be changed.
+## Variables
 
 ```carv
-let x = 10
-mut y = 20
-y = 30 // OK
-
-const PI = 3.14
+let x = 10;           // immutable
+mut y = 20;           // mutable
+y = 30;               // ok
+const PI = 3.14159;   // constant
 ```
 
-## Data Types
+## Types
 
-### Basic Types
-
-- `int`: 64-bit integer.
-- `float`: 64-bit floating point.
-- `string`: UTF-8 string.
-- `bool`: Boolean (`true` or `false`).
-- `char`: Single character.
-- `void`: No value.
-
-### Arrays
-
-Arrays are ordered collections of elements of the same type.
+Basic types: `int`, `float`, `string`, `bool`, `char`, `void`
 
 ```carv
-let arr = [1, 2, 3, 4, 5]
-let first = arr[0]
+let name: string = "hello";
+let count: int = 42;
+let pi: float = 3.14;
+let flag: bool = true;
+let c: char = 'a';
 ```
 
-## Operators
+Type inference works most of the time so you can skip annotations.
 
-### Arithmetic
-
-- `+`, `-`, `*`, `/`, `%`
-
-### Comparison
-
-- `==`, `!=`, `<`, `<=`, `>`, `>=`
-
-### Logical
-
-- `&&` (AND)
-- `||` (OR)
-- `!` (NOT)
-
-### Pipe Operator
-
-The pipe operator `|>` allows for clean functional data flow. It passes the result of the left expression as the first argument to the right function.
+## Arrays
 
 ```carv
-x |> double |> add(5) |> print
+let nums = [1, 2, 3, 4, 5];
+let first = nums[0];
+let length = len(nums);
 ```
+
+## Maps
+
+Hash maps with curly brace syntax:
+
+```carv
+let scores = {"alice": 100, "bob": 85, "charlie": 92};
+
+// access
+print(scores["alice"]);  // 100
+
+// check if key exists
+if has_key(scores, "dave") {
+    print("found dave");
+}
+
+// get keys and values
+let names = keys(scores);    // ["alice", "bob", "charlie"]
+let points = values(scores); // [100, 85, 92]
+
+// immutable operations (return new maps)
+let updated = set(scores, "dave", 88);
+let removed = delete(scores, "bob");
+```
+
+Keys must be hashable (strings, integers, booleans).
 
 ## Functions
 
-Functions are defined using the `fn` keyword.
-
 ```carv
 fn add(a: int, b: int) -> int {
-    return a + b
+    return a + b;
 }
 
-// Higher order functions are supported
-fn apply(f: fn(int) -> int, x: int) -> int {
-    return f(x)
+fn greet(name: string) {
+    print("Hello, " + name);
 }
+
+// anonymous functions
+let double = fn(x: int) -> int { return x * 2; };
 ```
+
+## Pipe Operator
+
+This is my favorite feature. Pass results through a chain of functions:
+
+```carv
+// instead of: print(add(5, double(x)))
+x |> double |> add(5) |> print;
+
+// with arrays
+[1, 2, 3] |> head |> print;  // 1
+```
+
+The left side becomes the first argument of the right side.
 
 ## Control Flow
 
@@ -83,69 +94,137 @@ fn apply(f: fn(int) -> int, x: int) -> int {
 
 ```carv
 if x > 0 {
-    print("Positive")
+    print("positive");
 } else if x < 0 {
-    print("Negative")
+    print("negative");
 } else {
-    print("Zero")
+    print("zero");
 }
 ```
 
 ### Loops
 
-#### For loop (C-style)
-
 ```carv
+// c-style for
 for (let i = 0; i < 10; i = i + 1) {
-    print(i)
+    print(i);
+}
+
+// for-in
+for item in items {
+    print(item);
+}
+
+// while
+while condition {
+    // ...
+}
+
+// infinite loop
+for {
+    if done {
+        break;
+    }
 }
 ```
 
-#### For-in loop
+## Classes
 
 ```carv
-for item in arr {
-    print(item)
+class Counter {
+    value: int = 0
+
+    fn increment() {
+        self.value = self.value + 1;
+    }
+
+    fn get() -> int {
+        return self.value;
+    }
 }
+
+let c = new Counter;
+c.increment();
+print(c.get());  // 1
 ```
 
-#### While loop
+## Result Types
+
+For error handling without exceptions:
 
 ```carv
-mut i = 0
-while i < 10 {
-    print(i)
-    i = i + 1
+fn divide(a: int, b: int) -> Result {
+    if b == 0 {
+        return Err("cannot divide by zero");
+    }
+    return Ok(a / b);
 }
-```
 
-#### Loop keyword (Infinite loop)
+// pattern matching
+let result = divide(10, 2);
+match result {
+    Ok(v) => print(v),
+    Err(e) => print("error: " + e),
+}
 
-```carv
-loop {
-    print("Forever")
-    break // Use break to exit
+// try operator (early return on error)
+fn calculate() -> Result {
+    let x = divide(10, 2)?;  // unwraps Ok or returns Err
+    let y = divide(x, 3)?;
+    return Ok(y);
 }
 ```
 
 ## Built-in Functions
 
-- `print(...)`: Print values to stdout.
-- `println(...)`: Print values followed by a newline.
-- `len(iterable)`: Return the length of a string or array.
-- `str(value)`: Convert value to string.
-- `int(value)`: Convert to integer.
-- `float(value)`: Convert to float.
-- `push(array, element)`: Return a new array with element appended.
-- `head(array)`: Return the first element.
-- `tail(array)`: Return all elements except the first.
+### General
+- `print(...)` - print to stdout
+- `len(x)` - length of string or array
+- `str(x)` - convert to string
+- `int(x)` - convert to int
+- `float(x)` - convert to float
+- `type_of(x)` - get type as string
 
-## Concurrency (Planned)
+### Arrays
+- `push(arr, item)` - return new array with item appended
+- `head(arr)` - first element
+- `tail(arr)` - all elements except first
 
-Carv has reserved keywords for concurrency features that are currently under development:
+### Strings
+- `split(str, sep)` - split string into array
+- `join(arr, sep)` - join array into string
+- `trim(str)` - remove whitespace
+- `substr(str, start, end?)` - substring
+- `contains(str, substr)` - check if contains
+- `starts_with(str, prefix)` - check prefix
+- `ends_with(str, suffix)` - check suffix
+- `replace(str, old, new)` - replace all occurrences
+- `index_of(str, substr)` - find index (-1 if not found)
+- `to_upper(str)` - uppercase
+- `to_lower(str)` - lowercase
+- `ord(char)` - character to ASCII code
+- `chr(int)` - ASCII code to character
+- `char_at(str, idx)` - get character at index
 
-- `spawn { ... }`: Launch a concurrent task.
-- `await expression`: Wait for a task to complete.
-- `chan`: Communication channels.
-- `send` / `recv`: Channel operations.
-- `select`: Multiplexed channel operations.
+### Maps
+- `keys(map)` - get all keys as array
+- `values(map)` - get all values as array
+- `has_key(map, key)` - check if key exists
+- `set(map, key, value)` - return new map with key set
+- `delete(map, key)` - return new map with key removed
+
+### Files
+- `read_file(path)` - read file contents
+- `write_file(path, content)` - write to file
+- `file_exists(path)` - check if file exists
+
+### Other
+- `exit(code?)` - exit program
+- `panic(msg)` - crash with message
+
+## Notes
+
+- Semicolons are required at the end of statements
+- The language is statically typed but has decent inference
+- Maps, arrays, and strings are immutable (operations return new values)
+- Error handling uses Result types instead of exceptions

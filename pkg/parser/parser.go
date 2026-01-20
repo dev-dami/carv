@@ -99,6 +99,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(lexer.TOKEN_ERR, p.parseErrExpression)
 	p.registerPrefix(lexer.TOKEN_MATCH, p.parseMatchExpression)
 	p.registerPrefix(lexer.TOKEN_SELF, p.parseSelfExpression)
+	p.registerPrefix(lexer.TOKEN_LBRACE, p.parseMapLiteral)
 
 	p.infixParseFns = make(map[lexer.TokenType]infixParseFn)
 	p.registerInfix(lexer.TOKEN_PLUS, p.parseInfixExpression)
@@ -974,4 +975,46 @@ func (p *Parser) parseMatchArm() *ast.MatchArm {
 
 func (p *Parser) parseSelfExpression() ast.Expression {
 	return &ast.Identifier{Token: p.curToken, Value: "self"}
+}
+
+func (p *Parser) parseMapLiteral() ast.Expression {
+	mapLit := &ast.MapLiteral{Token: p.curToken}
+	mapLit.Pairs = make(map[ast.Expression]ast.Expression)
+
+	if p.peekTokenIs(lexer.TOKEN_RBRACE) {
+		p.nextToken()
+		return mapLit
+	}
+
+	p.nextToken()
+	key := p.parseExpression(LOWEST)
+
+	if !p.expectPeek(lexer.TOKEN_COLON) {
+		return nil
+	}
+
+	p.nextToken()
+	value := p.parseExpression(LOWEST)
+	mapLit.Pairs[key] = value
+
+	for p.peekTokenIs(lexer.TOKEN_COMMA) {
+		p.nextToken()
+		p.nextToken()
+
+		key := p.parseExpression(LOWEST)
+
+		if !p.expectPeek(lexer.TOKEN_COLON) {
+			return nil
+		}
+
+		p.nextToken()
+		value := p.parseExpression(LOWEST)
+		mapLit.Pairs[key] = value
+	}
+
+	if !p.expectPeek(lexer.TOKEN_RBRACE) {
+		return nil
+	}
+
+	return mapLit
 }

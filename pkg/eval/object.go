@@ -27,6 +27,7 @@ const (
 	ERR_OBJ          ObjectType = "ERR"
 	INSTANCE_OBJ     ObjectType = "INSTANCE"
 	CLASS_OBJ        ObjectType = "CLASS"
+	MAP_OBJ          ObjectType = "MAP"
 )
 
 type Object interface {
@@ -183,6 +184,59 @@ type Method struct {
 
 func (m *Method) Type() ObjectType { return FUNCTION_OBJ }
 func (m *Method) Inspect() string  { return fmt.Sprintf("<method %s>", m.Fn.Name) }
+
+// HashKey is used as a key in maps
+type HashKey struct {
+	Type  ObjectType
+	Value uint64
+}
+
+// Hashable objects can be used as map keys
+type Hashable interface {
+	HashKey() HashKey
+}
+
+func (i *Integer) HashKey() HashKey {
+	return HashKey{Type: i.Type(), Value: uint64(i.Value)}
+}
+
+func (b *Boolean) HashKey() HashKey {
+	var value uint64
+	if b.Value {
+		value = 1
+	} else {
+		value = 0
+	}
+	return HashKey{Type: b.Type(), Value: value}
+}
+
+func (s *String) HashKey() HashKey {
+	h := uint64(0)
+	for _, c := range s.Value {
+		h = h*31 + uint64(c)
+	}
+	return HashKey{Type: s.Type(), Value: h}
+}
+
+// MapPair holds a key-value pair in a map
+type MapPair struct {
+	Key   Object
+	Value Object
+}
+
+// Map is a hash map object
+type Map struct {
+	Pairs map[HashKey]MapPair
+}
+
+func (m *Map) Type() ObjectType { return MAP_OBJ }
+func (m *Map) Inspect() string {
+	var pairs []string
+	for _, pair := range m.Pairs {
+		pairs = append(pairs, fmt.Sprintf("%s: %s", pair.Key.Inspect(), pair.Value.Inspect()))
+	}
+	return "{" + strings.Join(pairs, ", ") + "}"
+}
 
 var (
 	NIL   = &Nil{}
