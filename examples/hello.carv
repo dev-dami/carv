@@ -1,22 +1,4 @@
-print("Hello, Carv!");
-
-let x = 10;
-let y = 20;
-print("x =", x, "y =", y);
-
-if x < y {
-    print("x is less than y");
-} else {
-    print("x is greater than or equal to y");
-}
-
-if x == 10 {
-    print("x equals 10");
-}
-
-if x != y {
-    print("x is not equal to y");
-}
+// Basic Carv example - functions, pipes, loops, arrays
 
 fn double(n: int) -> int {
     return n * 2;
@@ -26,42 +8,30 @@ fn add(a: int, b: int) -> int {
     return a + b;
 }
 
-let result = double(x);
-print("double(x) =", result);
+print("Hello, Carv!");
 
-print("Using pipes:");
+let x = 10;
+let y = 20;
+
+// pipe operator
 x |> double |> print;
+x |> double |> add(5) |> print;
 
-x |> add(5) |> print;
+// control flow
+if x < y {
+    print("x is less than y");
+}
 
-10 |> double |> double |> print;
-
-print("For loop:");
-for (let i = 0; i < 5; i = i + 1) {
+// loops
+for (let i = 0; i < 3; i = i + 1) {
     print("i =", i);
 }
 
-print("While loop:");
-mut count = 0;
-while count < 3 {
-    print("count =", count);
-    count = count + 1;
+// arrays
+let nums = [1, 2, 3, 4, 5];
+print("array:", nums);
+print("length:", len(nums));
+
+for n in nums {
+    print(n);
 }
-
-let arr = [1, 2, 3, 4, 5];
-print("Array:", arr);
-print("First element:", arr[0]);
-print("Length:", len(arr));
-
-print("For-in loop:");
-for item in arr {
-    print("item:", item);
-}
-
-let a = true;
-let b = false;
-print("a && b =", a && b);
-print("a || b =", a || b);
-print("!a =", !a);
-
-print("Done!");

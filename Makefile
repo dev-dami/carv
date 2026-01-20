@@ -32,7 +32,7 @@ uninstall:
 
 clean:
 	rm -rf $(BUILD_DIR)
-	rm -f examples/*.c examples/hello examples/simple examples/class examples/builtins_test
+	rm -f examples/*.c examples/hello examples/showcase
 	$(GO) clean
 
 fmt:
@@ -49,8 +49,8 @@ repl: build
 	./$(BUILD_DIR)/$(BINARY_NAME) repl
 
 examples: build
-	./$(BUILD_DIR)/$(BINARY_NAME) build examples/hello.carv
-	./$(BUILD_DIR)/$(BINARY_NAME) build examples/class.carv
+	./$(BUILD_DIR)/$(BINARY_NAME) run examples/hello.carv
+	./$(BUILD_DIR)/$(BINARY_NAME) run examples/showcase.carv
 
 help:
 	@echo "Carv Programming Language"

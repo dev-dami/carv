@@ -1,0 +1,61 @@
+// Advanced Carv features - classes, result types, maps
+
+// Classes
+class Counter {
+    value: int = 0
+
+    fn increment() {
+        self.value = self.value + 1;
+    }
+
+    fn get() -> int {
+        return self.value;
+    }
+}
+
+let counter = new Counter;
+counter.increment();
+counter.increment();
+print("counter:", counter.get());
+
+// Result types and pattern matching
+fn divide(a: int, b: int) {
+    if b == 0 {
+        return Err("division by zero");
+    }
+    return Ok(a / b);
+}
+
+let result = divide(10, 2);
+match result {
+    Ok(v) => print("10 / 2 =", v),
+    Err(e) => print("error:", e),
+};
+
+let bad = divide(10, 0);
+match bad {
+    Ok(v) => print("result:", v),
+    Err(e) => print("caught error:", e),
+};
+
+// Try operator
+fn calculate() {
+    let x = divide(100, 5)?;
+    let y = divide(x, 2)?;
+    return Ok(y);
+}
+
+print("calculate():", calculate());
+
+// Hash maps
+let scores = {"alice": 95, "bob": 87, "charlie": 92};
+print("scores:", scores);
+print("alice:", scores["alice"]);
+print("keys:", keys(scores));
+
+if has_key(scores, "bob") {
+    print("bob is in scores");
+}
+
+let updated = set(scores, "dave", 88);
+print("added dave:", updated);
