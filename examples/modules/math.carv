@@ -23,4 +23,4 @@ pub fn square(n: int) -> int {
     return n * n;
 }
 
-const PI = 3.14159;
+pub const PI = 3.14159;

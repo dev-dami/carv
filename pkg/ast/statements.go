@@ -8,6 +8,7 @@ type LetStatement struct {
 	Type    TypeExpr
 	Value   Expression
 	Mutable bool
+	Public  bool
 }
 
 func (ls *LetStatement) statementNode()       {}
@@ -15,10 +16,11 @@ func (ls *LetStatement) TokenLiteral() string { return ls.Token.Literal }
 func (ls *LetStatement) Pos() (int, int)      { return ls.Token.Line, ls.Token.Column }
 
 type ConstStatement struct {
-	Token lexer.Token
-	Name  *Identifier
-	Type  TypeExpr
-	Value Expression
+	Token  lexer.Token
+	Name   *Identifier
+	Type   TypeExpr
+	Value  Expression
+	Public bool
 }
 
 func (cs *ConstStatement) statementNode()       {}

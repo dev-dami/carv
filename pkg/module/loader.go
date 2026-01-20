@@ -140,9 +140,11 @@ func (l *Loader) extractExports(program *ast.Program) map[string]bool {
 				exports[s.Name.Value] = true
 			}
 		case *ast.ConstStatement:
-			exports[s.Name.Value] = true
+			if s.Public {
+				exports[s.Name.Value] = true
+			}
 		case *ast.LetStatement:
-			if !s.Mutable {
+			if s.Public {
 				exports[s.Name.Value] = true
 			}
 		}
