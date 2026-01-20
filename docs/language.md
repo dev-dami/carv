@@ -211,7 +211,7 @@ fn helper() {
     // ...
 }
 
-// constants are exported by default
+// constants don't support visibility modifiers (no `pub` keyword)
 const PI = 3.14159;
 ```
 
@@ -219,7 +219,7 @@ const PI = 3.14159;
 
 Initialize a project with `carv init`:
 
-```
+```text
 myproject/
 ├── carv.toml          # project config
 ├── src/
