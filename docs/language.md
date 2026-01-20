@@ -6,6 +6,26 @@
 
 Quick reference for Carv's syntax and features. This is a work in progress - things might change as I figure stuff out.
 
+## String Interpolation
+
+Use `f"..."` for interpolated strings:
+
+```carv
+let name = "Carv";
+let version = "0.2.0";
+println(f"Welcome to {name} v{version}!");
+
+// expressions work too
+let x = 10;
+let y = 5;
+println(f"{x} + {y} = {x + y}");
+
+// function calls
+println(f"Length of name: {len(name)}");
+```
+
+Use `{{` and `}}` to escape braces: `f"Use {{braces}} like this"`.
+
 ## Variables
 
 ```carv
@@ -150,6 +170,77 @@ class Counter {
 let c = new Counter;
 c.increment();
 print(c.get());  // 1
+```
+
+## Modules
+
+Carv has a Rust-inspired module system using `require`:
+
+### Importing
+
+```carv
+// import entire module
+require "./utils";
+
+// import with alias
+require "./utils" as u;
+
+// import specific exports
+require { add, subtract } from "./math";
+
+// import all exports
+require * from "./math";
+```
+
+### Exporting
+
+Use `pub` to mark functions and classes as public:
+
+```carv
+// math.carv
+pub fn add(a: int, b: int) -> int {
+    return a + b;
+}
+
+pub fn multiply(a: int, b: int) -> int {
+    return a * b;
+}
+
+// private - not exported
+fn helper() {
+    // ...
+}
+
+// constants are exported by default
+const PI = 3.14159;
+```
+
+### Project Structure
+
+Initialize a project with `carv init`:
+
+```
+myproject/
+├── carv.toml          # project config
+├── src/
+│   └── main.carv      # entry point
+└── carv_modules/      # dependencies (future)
+```
+
+### carv.toml
+
+```toml
+[package]
+name = "myproject"
+version = "0.1.0"
+entry = "src/main.carv"
+
+[dependencies]
+# future: external packages
+
+[build]
+output = "build"
+optimize = true
 ```
 
 ## Result Types

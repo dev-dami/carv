@@ -31,6 +31,10 @@ Source Code (.carv)
   Interpreter         Code Generator
   (pkg/eval)          (pkg/codegen)
        │                  │
+       │                  │
+  Module Loader           │
+  (pkg/module)            │
+       │                  │
        ▼                  ▼
     Output            C Source
                           │
@@ -88,6 +92,19 @@ Generates C code from the AST. The generated C is not pretty but it works.
 
 Currently targets C99. The runtime is minimal - just some helper macros and a simple GC (eventually).
 
+### `pkg/module`
+
+Module system for loading and resolving dependencies.
+
+Key files:
+- `loader.go` - module resolution and loading
+- `config.go` - `carv.toml` parsing
+
+Supports:
+- Relative imports (`./utils`, `../lib/math`)
+- Project-local imports (from `src/` directory)
+- Future: external packages (from `carv_modules/`)
+
 ### `cmd/carv`
 
 CLI entry point. Handles `run`, `build`, `emit-c`, `repl` commands.
@@ -110,12 +127,13 @@ Easier to parse. Maybe I'll add automatic semicolon insertion later, but for now
 
 The goal is self-hosting - writing the Carv compiler in Carv. That means I need:
 
-1. Module/import system (in progress)
-2. String interpolation (would be nice for codegen)
-3. Better standard library
-4. Then rewrite lexer, parser, codegen in Carv
+1. ~~Module/import system~~ ✓ Done!
+2. ~~String interpolation~~ ✓ Done!
+3. Package manager (for external dependencies)
+4. Better standard library
+5. Then rewrite lexer, parser, codegen in Carv
 
-It's a long road but that's half the fun.
+It's a long road but that's half the fun. Getting closer though!
 
 ---
 
