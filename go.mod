@@ -1,3 +1,3 @@
-module github.com/carv-lang/carv
+module github.com/dev-dami/carv
 
 go 1.22.2

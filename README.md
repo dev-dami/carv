@@ -1,8 +1,8 @@
 # Carv
 
-A little programming language I've been tinkering with. It compiles to C, has a pipe operator I really like, and I'm slowly working toward making it self-hosted (writing the Carv compiler in Carv itself).
+An ambitious little programming language I've been tinkering with. It compiles to C, has a pipe operator I really like, and I'm slowly working toward making it self-hosted (writing the Carv compiler in Carv itself).
 
-This is very much a hobby project - expect rough edges, half-baked features, and occasional breaking changes as I figure things out.
+This is very much a hobby project so expect some rough edges, half-baked features, and occasional breaking changes as I figure things out.
 
 ## What's Working
 
@@ -14,10 +14,10 @@ This is very much a hobby project - expect rough edges, half-baked features, and
 - Compiles to C, runs natively
 - Tree-walking interpreter for quick iteration
 
-## Quick Look
+## Quick Look at the Syntax
 
 ```carv
-// pipe operator is my favorite part
+// pipe operator - probably my favorite feature
 let result = [1, 2, 3, 4, 5]
     |> map(fn(x) { x * 2; })
     |> filter(fn(x) { x > 4; })
@@ -86,13 +86,19 @@ Current focus:
 - [ ] Module/import system
 - [ ] Self-hosting (the fun part)
 
+## Documentation
+
+- [Language Guide](docs/language.md) - syntax and features
+- [Architecture](docs/architecture.md) - how the compiler works
+- [Built-in Functions](docs/builtins.md) - standard library reference
+
 ## Syntax Notes
 
 Semicolons are required (I know, I know). The syntax is roughly C-like with some Rust-isms for error handling.
 
 ## Contributing
 
-This is mainly a personal project but feel free to open issues if you find bugs or have ideas. No promises on response time though - I work on this when I have the energy.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. This is mainly a personal project but feel free to open issues if you find bugs or have ideas.
 
 ## License
 
