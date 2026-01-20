@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -55,6 +56,38 @@ var builtins = map[string]*Builtin{
 				return newError("str() takes exactly 1 argument")
 			}
 			return &String{Value: args[0].Inspect()}
+		},
+	},
+	"parse_int": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 1 {
+				return newError("parse_int() takes exactly 1 argument")
+			}
+			str, ok := args[0].(*String)
+			if !ok {
+				return newError("parse_int() argument must be a string")
+			}
+			val, err := strconv.ParseInt(str.Value, 10, 64)
+			if err != nil {
+				return newError("cannot parse '%s' as int", str.Value)
+			}
+			return &Integer{Value: val}
+		},
+	},
+	"parse_float": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 1 {
+				return newError("parse_float() takes exactly 1 argument")
+			}
+			str, ok := args[0].(*String)
+			if !ok {
+				return newError("parse_float() argument must be a string")
+			}
+			val, err := strconv.ParseFloat(str.Value, 64)
+			if err != nil {
+				return newError("cannot parse '%s' as float", str.Value)
+			}
+			return &Float{Value: val}
 		},
 	},
 	"int": {

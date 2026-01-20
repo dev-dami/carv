@@ -50,6 +50,8 @@ func (c *Checker) defineBuiltins() {
 	c.scope.Define("str", &FunctionType{Params: []Type{Any}, Return: String})
 	c.scope.Define("int", &FunctionType{Params: []Type{Any}, Return: Int})
 	c.scope.Define("float", &FunctionType{Params: []Type{Any}, Return: Float})
+	c.scope.Define("parse_int", &FunctionType{Params: []Type{String}, Return: Int})
+	c.scope.Define("parse_float", &FunctionType{Params: []Type{String}, Return: Float})
 	c.scope.Define("push", &FunctionType{Params: []Type{Any, Any}, Return: Any})
 	c.scope.Define("head", &FunctionType{Params: []Type{Any}, Return: Any})
 	c.scope.Define("tail", &FunctionType{Params: []Type{Any}, Return: Any})

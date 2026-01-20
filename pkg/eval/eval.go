@@ -496,6 +496,10 @@ func evalAssignExpression(node *ast.AssignExpression, env *Environment) Object {
 		return evalMemberAssignment(memberExpr, node.Operator, val, env)
 	}
 
+	if indexExpr, ok := node.Left.(*ast.IndexExpression); ok {
+		return evalIndexAssignment(indexExpr, node.Operator, val, env)
+	}
+
 	ident, ok := node.Left.(*ast.Identifier)
 	if !ok {
 		return &Error{Message: "cannot assign to non-identifier"}
@@ -570,6 +574,90 @@ func evalMemberAssignment(node *ast.MemberExpression, operator string, val Objec
 
 	instance.Fields[memberName] = newVal
 	return newVal
+}
+
+func evalIndexAssignment(node *ast.IndexExpression, operator string, val Object, env *Environment) Object {
+	left := Eval(node.Left, env)
+	if isError(left) {
+		return left
+	}
+
+	index := Eval(node.Index, env)
+	if isError(index) {
+		return index
+	}
+
+	switch obj := left.(type) {
+	case *Array:
+		idx, ok := index.(*Integer)
+		if !ok {
+			return &Error{Message: "array index must be an integer"}
+		}
+		if idx.Value < 0 || idx.Value >= int64(len(obj.Elements)) {
+			return &Error{Message: "array index out of bounds"}
+		}
+
+		var newVal Object
+		switch operator {
+		case "=":
+			newVal = val
+		case "+=":
+			newVal = evalInfixExpression("+", obj.Elements[idx.Value], val)
+		case "-=":
+			newVal = evalInfixExpression("-", obj.Elements[idx.Value], val)
+		case "*=":
+			newVal = evalInfixExpression("*", obj.Elements[idx.Value], val)
+		case "/=":
+			newVal = evalInfixExpression("/", obj.Elements[idx.Value], val)
+		default:
+			return &Error{Message: "unknown assignment operator: " + operator}
+		}
+
+		if isError(newVal) {
+			return newVal
+		}
+
+		obj.Elements[idx.Value] = newVal
+		return newVal
+
+	case *Map:
+		hashKey, ok := index.(Hashable)
+		if !ok {
+			return &Error{Message: "unusable as hash key: " + string(index.Type())}
+		}
+
+		var newVal Object
+		existing, exists := obj.Pairs[hashKey.HashKey()]
+		if operator == "=" {
+			newVal = val
+		} else {
+			if !exists {
+				return &Error{Message: "key does not exist in map"}
+			}
+			switch operator {
+			case "+=":
+				newVal = evalInfixExpression("+", existing.Value, val)
+			case "-=":
+				newVal = evalInfixExpression("-", existing.Value, val)
+			case "*=":
+				newVal = evalInfixExpression("*", existing.Value, val)
+			case "/=":
+				newVal = evalInfixExpression("/", existing.Value, val)
+			default:
+				return &Error{Message: "unknown assignment operator: " + operator}
+			}
+		}
+
+		if isError(newVal) {
+			return newVal
+		}
+
+		obj.Pairs[hashKey.HashKey()] = MapPair{Key: index, Value: newVal}
+		return newVal
+
+	default:
+		return &Error{Message: "index assignment not supported for " + string(left.Type())}
+	}
 }
 
 func evalIfExpression(ie *ast.IfExpression, env *Environment) Object {
