@@ -1,3 +1,7 @@
+[← Back to README](../README.md) | **Language Guide** | [Architecture →](architecture.md)
+
+---
+
 # Carv Language Guide
 
 Quick reference for Carv's syntax and features. This is a work in progress - things might change as I figure stuff out.
@@ -228,3 +232,7 @@ fn calculate() -> Result {
 - The language is statically typed but has decent inference
 - Maps, arrays, and strings are immutable (operations return new values)
 - Error handling uses Result types instead of exceptions
+
+---
+
+[← Back to README](../README.md) | **Language Guide** | [Architecture →](architecture.md)

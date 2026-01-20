@@ -1,3 +1,7 @@
+[← Architecture](architecture.md) | **Built-ins** | [Contributing →](../CONTRIBUTING.md)
+
+---
+
 # Built-in Functions
 
 Reference for all built-in functions available in Carv.
@@ -273,3 +277,7 @@ Crash with error message.
 ```carv
 panic("something went wrong");
 ```
+
+---
+
+[← Architecture](architecture.md) | **Built-ins** | [Contributing →](../CONTRIBUTING.md)

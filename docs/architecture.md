@@ -1,3 +1,7 @@
+[← Language Guide](language.md) | **Architecture** | [Built-ins →](builtins.md)
+
+---
+
 # Carv Architecture
 
 How the compiler is structured. Mostly notes for myself but might be useful if you're poking around.
@@ -112,3 +116,7 @@ The goal is self-hosting - writing the Carv compiler in Carv. That means I need:
 4. Then rewrite lexer, parser, codegen in Carv
 
 It's a long road but that's half the fun.
+
+---
+
+[← Language Guide](language.md) | **Architecture** | [Built-ins →](builtins.md)

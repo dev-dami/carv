@@ -1,3 +1,7 @@
+[← Built-ins](docs/builtins.md) | **Contributing** | [Back to README →](README.md)
+
+---
+
 # Contributing to Carv
 
 Hey, thanks for the interest! This is a hobby project so things are pretty informal around here.
@@ -75,3 +79,7 @@ By contributing, you agree that your contributions will be licensed under MIT.
 ---
 
 Thanks for helping make Carv better!
+
+---
+
+[← Built-ins](docs/builtins.md) | **Contributing** | [Back to README →](README.md)

@@ -6,9 +6,9 @@ An ambitious little programming language I've been tinkering with.
 
 ## The Story
 
-This project has been a long time coming. Back in September last year, I started working on something called **dyms** (Dynamic Yet Minimal Scripts) - first in Go, then rewrote it in Rust, then... gave up. Life happened, motivation faded, the usual.
+This project has been a long time coming. Back in September last year, I started working on something called **dyms** (Dynamic Yet Minimal Script) - first in Go, then rewrote it in Rust, then... i gave up. Life happened, motivation faded, School, yk the usual.
 
-Fast forward to now - I'm back at it. Ported what I had to Go, cleaned things up, and renamed it Carv. The goal is still the same: build a language that compiles to C, eventually make it self-hosted (write the Carv compiler in Carv itself).
+Fast forward to now right now and i'm back at it. Ported what I had to Go, cleaned things up, and renamed it Carv. The goal is still the same: build a language that compiles to C, eventually make it self-hosted (write the Carv compiler in Carv itself).
 
 We'll see how far I get this time.
 
@@ -20,9 +20,9 @@ Carv compiles to C and runs natively. It has a tree-walking interpreter too for 
 
 Features that actually work:
 - Static typing with inference
-- Pipe operator (`|>`) - my favorite part
+- Pipe operator (`|>`) - my favorite part and why not
 - Classes with methods
-- Result types (`Ok`/`Err`) with pattern matching
+- Result types (`Ok`/`Err`) with pattern matching cause **RUST**
 - Hash maps
 - Basic standard library
 
