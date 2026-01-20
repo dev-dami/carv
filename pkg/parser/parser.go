@@ -211,6 +211,8 @@ func (p *Parser) ParseProgram() *ast.Program {
 
 func (p *Parser) parseStatement() ast.Statement {
 	switch p.curToken.Type {
+	case lexer.TOKEN_PUB:
+		return p.parsePublicStatement()
 	case lexer.TOKEN_LET:
 		return p.parseLetStatement()
 	case lexer.TOKEN_MUT:
@@ -241,6 +243,40 @@ func (p *Parser) parseStatement() ast.Statement {
 		return nil
 	default:
 		return p.parseExpressionStatement()
+	}
+}
+
+func (p *Parser) parsePublicStatement() ast.Statement {
+	p.nextToken()
+	switch p.curToken.Type {
+	case lexer.TOKEN_FN:
+		stmt := p.parseFunctionStatement()
+		if stmt != nil {
+			stmt.Public = true
+		}
+		return stmt
+	case lexer.TOKEN_CLASS:
+		stmt := p.parseClassStatement()
+		if stmt != nil {
+			stmt.Public = true
+		}
+		return stmt
+	case lexer.TOKEN_CONST:
+		stmt := p.parseConstStatement()
+		if stmt != nil {
+			stmt.Public = true
+		}
+		return stmt
+	case lexer.TOKEN_LET:
+		stmt := p.parseLetStatement()
+		if stmt != nil {
+			stmt.Public = true
+		}
+		return stmt
+	default:
+		p.errors = append(p.errors, fmt.Sprintf("line %d:%d: expected fn, class, const, or let after pub",
+			p.curToken.Line, p.curToken.Column))
+		return nil
 	}
 }
 
@@ -580,12 +616,16 @@ func (p *Parser) parseRequireStatement() *ast.RequireStatement {
 		stmt.Names = []*ast.Identifier{}
 
 		if !p.peekTokenIs(lexer.TOKEN_RBRACE) {
-			p.nextToken()
+			if !p.expectPeek(lexer.TOKEN_IDENT) {
+				return nil
+			}
 			stmt.Names = append(stmt.Names, &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal})
 
 			for p.peekTokenIs(lexer.TOKEN_COMMA) {
 				p.nextToken()
-				p.nextToken()
+				if !p.expectPeek(lexer.TOKEN_IDENT) {
+					return nil
+				}
 				stmt.Names = append(stmt.Names, &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal})
 			}
 		}

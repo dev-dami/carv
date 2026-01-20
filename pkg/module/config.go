@@ -90,7 +90,7 @@ func FindProjectRoot(startDir string) (string, error) {
 
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return startDir, nil
+			return dir, nil
 		}
 		dir = parent
 	}
