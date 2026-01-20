@@ -1,0 +1,17 @@
+fn divide(a: int, b: int) -> int {
+    if b == 0 {
+        return 0;
+    }
+    return a / b;
+}
+
+let result = divide(10, 2);
+print("10 / 2 =", result);
+
+let result2 = divide(10, 0);
+print("10 / 0 =", result2);
+
+let x = Ok(42);
+let y = Err("something went wrong");
+
+print("Done with error handling demo!");
