@@ -258,6 +258,9 @@ func (c *Checker) checkRequireStatement(s *ast.RequireStatement) {
 		for _, name := range s.Names {
 			c.scope.Define(name.Value, Any)
 		}
+	} else if s.All {
+		// Wildcard imports resolved at runtime; define synthetic binding to avoid undefined errors
+		c.scope.Define(s.Path.Value, &ModuleType{Name: s.Path.Value})
 	}
 }
 

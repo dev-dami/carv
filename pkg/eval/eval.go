@@ -1082,6 +1082,9 @@ func evalRequireStatement(node *ast.RequireStatement, env *Environment) Object {
 
 	if len(node.Names) > 0 {
 		for _, name := range node.Names {
+			if !mod.Exports[name.Value] {
+				return &Error{Message: "undefined export: " + name.Value, Line: name.Token.Line, Column: name.Token.Column}
+			}
 			if val, ok := modEnv.Get(name.Value); ok {
 				env.Set(name.Value, val)
 			} else {
