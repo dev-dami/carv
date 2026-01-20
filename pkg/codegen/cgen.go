@@ -250,6 +250,32 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("}")
 	g.writeln("")
 
+	g.writeln("carv_string carv_int_to_string(carv_int val) {")
+	g.writeln("    char* buf = (char*)malloc(32);")
+	g.writeln("    snprintf(buf, 32, \"%lld\", val);")
+	g.writeln("    return buf;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("carv_string carv_float_to_string(carv_float val) {")
+	g.writeln("    char* buf = (char*)malloc(64);")
+	g.writeln("    snprintf(buf, 64, \"%g\", val);")
+	g.writeln("    return buf;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("carv_string carv_bool_to_string(carv_bool val) {")
+	g.writeln("    return strdup(val ? \"true\" : \"false\");")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("carv_string carv_concat(carv_string a, carv_string b) {")
+	g.writeln("    size_t len_a = strlen(a);")
+	g.writeln("    size_t len_b = strlen(b);")
+	g.writeln("    char* result = (char*)malloc(len_a + len_b + 1);")
+	g.writeln("    memcpy(result, a, len_a);")
+	g.writeln("    memcpy(result + len_a, b, len_b + 1);")
+	g.writeln("    return result;")
+	g.writeln("}")
+	g.writeln("")
+
 	g.writeln("typedef struct { carv_bool is_ok; union { carv_int ok_int; carv_string ok_str; void* ok_ptr; } ok; union { carv_string err_str; carv_int err_code; } err; } carv_result;")
 	g.writeln("")
 	g.writeln("carv_result carv_ok_int(carv_int val) { carv_result r; r.is_ok = true; r.ok.ok_int = val; return r; }")
@@ -609,6 +635,8 @@ func (g *CGenerator) generateExpression(expr ast.Expression) string {
 		return g.generateTryExpression(e)
 	case *ast.MatchExpression:
 		return g.generateMatchExpression(e)
+	case *ast.InterpolatedString:
+		return g.generateInterpolatedString(e)
 	}
 	return ""
 }
@@ -902,6 +930,52 @@ func (g *CGenerator) getArrayType(elemType string) string {
 	}
 }
 
+func (g *CGenerator) generateInterpolatedString(e *ast.InterpolatedString) string {
+	if len(e.Parts) == 0 {
+		return "\"\""
+	}
+
+	if len(e.Parts) == 1 {
+		if str, ok := e.Parts[0].(*ast.StringLiteral); ok {
+			return fmt.Sprintf("\"%s\"", g.escapeString(str.Value))
+		}
+		return g.convertToString(e.Parts[0])
+	}
+
+	var result string
+	for i, part := range e.Parts {
+		partStr := g.convertToString(part)
+		if i == 0 {
+			result = partStr
+		} else {
+			result = fmt.Sprintf("carv_concat(%s, %s)", result, partStr)
+		}
+	}
+	return result
+}
+
+func (g *CGenerator) convertToString(expr ast.Expression) string {
+	if str, ok := expr.(*ast.StringLiteral); ok {
+		return fmt.Sprintf("\"%s\"", g.escapeString(str.Value))
+	}
+
+	exprStr := g.generateExpression(expr)
+	exprType := g.inferExprType(expr)
+
+	switch exprType {
+	case "carv_string":
+		return exprStr
+	case "carv_int":
+		return fmt.Sprintf("carv_int_to_string(%s)", exprStr)
+	case "carv_float":
+		return fmt.Sprintf("carv_float_to_string(%s)", exprStr)
+	case "carv_bool":
+		return fmt.Sprintf("carv_bool_to_string(%s)", exprStr)
+	default:
+		return fmt.Sprintf("carv_int_to_string((carv_int)%s)", exprStr)
+	}
+}
+
 func (g *CGenerator) inferArrayElemType(expr ast.Expression) string {
 	switch e := expr.(type) {
 	case *ast.ArrayLiteral:
@@ -961,6 +1035,8 @@ func (g *CGenerator) inferExprType(expr ast.Expression) string {
 	case *ast.FloatLiteral:
 		return "carv_float"
 	case *ast.StringLiteral:
+		return "carv_string"
+	case *ast.InterpolatedString:
 		return "carv_string"
 	case *ast.BoolLiteral:
 		return "carv_bool"
