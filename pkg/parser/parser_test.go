@@ -3,8 +3,8 @@ package parser
 import (
 	"testing"
 
-	"github.com/carv-lang/carv/pkg/ast"
-	"github.com/carv-lang/carv/pkg/lexer"
+	"github.com/dev-dami/carv/pkg/ast"
+	"github.com/dev-dami/carv/pkg/lexer"
 )
 
 func TestLetStatements(t *testing.T) {

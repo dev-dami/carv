@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/carv-lang/carv/pkg/ast"
+	"github.com/dev-dami/carv/pkg/ast"
 )
 
 type ObjectType string

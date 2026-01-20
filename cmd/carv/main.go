@@ -7,11 +7,11 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/carv-lang/carv/pkg/codegen"
-	"github.com/carv-lang/carv/pkg/eval"
-	"github.com/carv-lang/carv/pkg/lexer"
-	"github.com/carv-lang/carv/pkg/parser"
-	"github.com/carv-lang/carv/pkg/types"
+	"github.com/dev-dami/carv/pkg/codegen"
+	"github.com/dev-dami/carv/pkg/eval"
+	"github.com/dev-dami/carv/pkg/lexer"
+	"github.com/dev-dami/carv/pkg/parser"
+	"github.com/dev-dami/carv/pkg/types"
 )
 
 const version = "0.0.1-dev"

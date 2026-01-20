@@ -1,6 +1,6 @@
 package ast
 
-import "github.com/carv-lang/carv/pkg/lexer"
+import "github.com/dev-dami/carv/pkg/lexer"
 
 type Node interface {
 	TokenLiteral() string

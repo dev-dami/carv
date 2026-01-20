@@ -1,7 +1,7 @@
 package eval
 
 import (
-	"github.com/carv-lang/carv/pkg/ast"
+	"github.com/dev-dami/carv/pkg/ast"
 )
 
 func Eval(node ast.Node, env *Environment) Object {

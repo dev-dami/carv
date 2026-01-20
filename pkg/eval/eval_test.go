@@ -3,8 +3,8 @@ package eval
 import (
 	"testing"
 
-	"github.com/carv-lang/carv/pkg/lexer"
-	"github.com/carv-lang/carv/pkg/parser"
+	"github.com/dev-dami/carv/pkg/lexer"
+	"github.com/dev-dami/carv/pkg/parser"
 )
 
 func TestEvalIntegerExpression(t *testing.T) {
