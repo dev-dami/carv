@@ -1,4 +1,19 @@
-// Advanced Carv features - classes, result types, maps
+// Advanced Carv features - classes, result types, maps, string interpolation
+
+// String interpolation
+let name = "Carv";
+let version = "0.1.0";
+println(f"Welcome to {name} v{version}!");
+
+let x = 42;
+let y = 3.14;
+println(f"The answer is {x} and pi is approximately {y}");
+
+// Expressions in interpolation
+let a = 10;
+let b = 5;
+println(f"{a} + {b} = {a + b}");
+println(f"{a} * {b} = {a * b}");
 
 // Classes
 class Counter {
@@ -16,7 +31,7 @@ class Counter {
 let counter = new Counter;
 counter.increment();
 counter.increment();
-print("counter:", counter.get());
+println(f"counter value: {counter.get()}");
 
 // Result types and pattern matching
 fn divide(a: int, b: int) {
@@ -28,14 +43,14 @@ fn divide(a: int, b: int) {
 
 let result = divide(10, 2);
 match result {
-    Ok(v) => print("10 / 2 =", v),
-    Err(e) => print("error:", e),
+    Ok(v) => println(f"10 / 2 = {v}"),
+    Err(e) => println(f"error: {e}"),
 };
 
 let bad = divide(10, 0);
 match bad {
-    Ok(v) => print("result:", v),
-    Err(e) => print("caught error:", e),
+    Ok(v) => println(f"result: {v}"),
+    Err(e) => println(f"caught error: {e}"),
 };
 
 // Try operator
@@ -45,17 +60,23 @@ fn calculate() {
     return Ok(y);
 }
 
-print("calculate():", calculate());
+let calc_result = calculate();
+println(f"calculate() returned: {calc_result}");
 
 // Hash maps
 let scores = {"alice": 95, "bob": 87, "charlie": 92};
-print("scores:", scores);
-print("alice:", scores["alice"]);
-print("keys:", keys(scores));
+println(f"scores: {scores}");
+
+let alice_key = "alice";
+let alice_score = scores[alice_key];
+println(f"alice's score: {alice_score}");
+println(f"all keys: {keys(scores)}");
 
 if has_key(scores, "bob") {
-    print("bob is in scores");
+    let bob_key = "bob";
+    let bob_score = scores[bob_key];
+    println(f"bob is in scores with {bob_score} points");
 }
 
 let updated = set(scores, "dave", 88);
-print("added dave:", updated);
+println(f"after adding dave: {updated}");
