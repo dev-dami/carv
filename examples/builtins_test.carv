@@ -1,0 +1,25 @@
+let test_content = "hello,world,carv";
+
+let parts = split(test_content, ",");
+print("Split result length:", len(parts));
+
+let joined = join(parts, "-");
+print("Joined:", joined);
+
+let trimmed = trim("  hello world  ");
+print("Trimmed:", trimmed);
+
+let sub = substr("hello world", 0, 5);
+print("Substr:", sub);
+
+let filename = "/tmp/carv_test.txt";
+write_file(filename, "Hello from Carv!");
+
+if file_exists(filename) {
+    let content = read_file(filename);
+    print("File content:", content);
+} else {
+    print("File not found");
+}
+
+print("All tests done!");
