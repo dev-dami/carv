@@ -155,6 +155,27 @@ func Eval(node ast.Node, env *Environment) Object {
 
 	case *ast.MemberExpression:
 		return evalMemberExpression(node, env)
+
+	case *ast.OkExpression:
+		return evalOkExpression(node, env)
+
+	case *ast.ErrExpression:
+		return evalErrExpression(node, env)
+
+	case *ast.MatchExpression:
+		return evalMatchExpression(node, env)
+
+	case *ast.TryExpression:
+		return evalTryExpression(node, env)
+
+	case *ast.ClassStatement:
+		return evalClassStatement(node, env)
+
+	case *ast.NewExpression:
+		return evalNewExpression(node, env)
+
+	case *ast.BlockExpression:
+		return evalBlockExpression(node, env)
 	}
 
 	return nil
@@ -435,6 +456,10 @@ func evalAssignExpression(node *ast.AssignExpression, env *Environment) Object {
 		return val
 	}
 
+	if memberExpr, ok := node.Left.(*ast.MemberExpression); ok {
+		return evalMemberAssignment(memberExpr, node.Operator, val, env)
+	}
+
 	ident, ok := node.Left.(*ast.Identifier)
 	if !ok {
 		return &Error{Message: "cannot assign to non-identifier"}
@@ -466,6 +491,48 @@ func evalAssignExpression(node *ast.AssignExpression, env *Environment) Object {
 	}
 
 	env.Update(ident.Value, newVal)
+	return newVal
+}
+
+func evalMemberAssignment(node *ast.MemberExpression, operator string, val Object, env *Environment) Object {
+	obj := Eval(node.Object, env)
+	if isError(obj) {
+		return obj
+	}
+
+	instance, ok := obj.(*Instance)
+	if !ok {
+		return &Error{Message: "cannot assign to member of non-instance"}
+	}
+
+	memberName := node.Member.Value
+
+	existing, exists := instance.Fields[memberName]
+	if !exists {
+		return &Error{Message: "undefined field: " + memberName}
+	}
+
+	var newVal Object
+	switch operator {
+	case "=":
+		newVal = val
+	case "+=":
+		newVal = evalInfixExpression("+", existing, val)
+	case "-=":
+		newVal = evalInfixExpression("-", existing, val)
+	case "*=":
+		newVal = evalInfixExpression("*", existing, val)
+	case "/=":
+		newVal = evalInfixExpression("/", existing, val)
+	default:
+		return &Error{Message: "unknown assignment operator: " + operator}
+	}
+
+	if isError(newVal) {
+		return newVal
+	}
+
+	instance.Fields[memberName] = newVal
 	return newVal
 }
 
@@ -632,7 +699,27 @@ func evalStringIndexExpression(str, index Object) Object {
 }
 
 func evalMemberExpression(node *ast.MemberExpression, env *Environment) Object {
-	return &Error{Message: "member access not yet implemented"}
+	obj := Eval(node.Object, env)
+	if isError(obj) {
+		return obj
+	}
+
+	instance, ok := obj.(*Instance)
+	if !ok {
+		return &Error{Message: "member access requires an instance, got " + string(obj.Type())}
+	}
+
+	memberName := node.Member.Value
+
+	if val, exists := instance.Fields[memberName]; exists {
+		return val
+	}
+
+	if method, exists := instance.Class.Methods[memberName]; exists {
+		return &Method{Instance: instance, Fn: method}
+	}
+
+	return &Error{Message: "undefined member: " + memberName}
 }
 
 func evalExpressions(exps []ast.Expression, env *Environment) []Object {
@@ -654,6 +741,12 @@ func applyFunction(fn Object, args []Object) Object {
 	case *Function:
 		extendedEnv := extendFunctionEnv(fn, args)
 		evaluated := Eval(fn.Body, extendedEnv)
+		return unwrapReturnValue(evaluated)
+
+	case *Method:
+		extendedEnv := extendFunctionEnv(fn.Fn, args)
+		extendedEnv.Set("self", fn.Instance)
+		evaluated := Eval(fn.Fn.Body, extendedEnv)
 		return unwrapReturnValue(evaluated)
 
 	case *Builtin:
@@ -708,4 +801,184 @@ func isError(obj Object) bool {
 		return obj.Type() == ERROR_OBJ
 	}
 	return false
+}
+
+func evalOkExpression(node *ast.OkExpression, env *Environment) Object {
+	val := Eval(node.Value, env)
+	if isError(val) {
+		return val
+	}
+	return &Ok{Value: val}
+}
+
+func evalErrExpression(node *ast.ErrExpression, env *Environment) Object {
+	val := Eval(node.Value, env)
+	if isError(val) {
+		return val
+	}
+	return &Err{Value: val}
+}
+
+func evalMatchExpression(node *ast.MatchExpression, env *Environment) Object {
+	val := Eval(node.Value, env)
+	if isError(val) {
+		return val
+	}
+
+	for _, arm := range node.Arms {
+		if matchPattern(arm.Pattern, val, env) {
+			matchEnv := NewEnclosedEnvironment(env)
+			bindPattern(arm.Pattern, val, matchEnv)
+			return Eval(arm.Body, matchEnv)
+		}
+	}
+
+	return NIL
+}
+
+func matchPattern(pattern ast.Expression, val Object, env *Environment) bool {
+	switch p := pattern.(type) {
+	case *ast.OkExpression:
+		_, isOk := val.(*Ok)
+		return isOk
+	case *ast.ErrExpression:
+		_, isErr := val.(*Err)
+		return isErr
+	case *ast.CallExpression:
+		if ident, ok := p.Function.(*ast.Identifier); ok {
+			switch ident.Value {
+			case "Ok":
+				_, isOk := val.(*Ok)
+				return isOk
+			case "Err":
+				_, isErr := val.(*Err)
+				return isErr
+			}
+		}
+	case *ast.Identifier:
+		if p.Value == "_" {
+			return true
+		}
+		return true
+	}
+	return false
+}
+
+func bindPattern(pattern ast.Expression, val Object, env *Environment) {
+	switch p := pattern.(type) {
+	case *ast.OkExpression:
+		if okVal, isOk := val.(*Ok); isOk {
+			if ident, ok := p.Value.(*ast.Identifier); ok {
+				env.Set(ident.Value, okVal.Value)
+			}
+		}
+	case *ast.ErrExpression:
+		if errVal, isErr := val.(*Err); isErr {
+			if ident, ok := p.Value.(*ast.Identifier); ok {
+				env.Set(ident.Value, errVal.Value)
+			}
+		}
+	case *ast.CallExpression:
+		if ident, ok := p.Function.(*ast.Identifier); ok {
+			switch ident.Value {
+			case "Ok":
+				if okVal, isOk := val.(*Ok); isOk && len(p.Arguments) > 0 {
+					if argIdent, ok := p.Arguments[0].(*ast.Identifier); ok {
+						env.Set(argIdent.Value, okVal.Value)
+					}
+				}
+			case "Err":
+				if errVal, isErr := val.(*Err); isErr && len(p.Arguments) > 0 {
+					if argIdent, ok := p.Arguments[0].(*ast.Identifier); ok {
+						env.Set(argIdent.Value, errVal.Value)
+					}
+				}
+			}
+		}
+	case *ast.Identifier:
+		if p.Value != "_" {
+			env.Set(p.Value, val)
+		}
+	}
+}
+
+func evalTryExpression(node *ast.TryExpression, env *Environment) Object {
+	val := Eval(node.Value, env)
+	if isError(val) {
+		return val
+	}
+
+	switch v := val.(type) {
+	case *Ok:
+		return v.Value
+	case *Err:
+		return &ReturnValue{Value: v}
+	default:
+		return val
+	}
+}
+
+func evalClassStatement(node *ast.ClassStatement, env *Environment) Object {
+	class := &Class{
+		Name:    node.Name.Value,
+		Fields:  make(map[string]Object),
+		Methods: make(map[string]*Function),
+	}
+
+	for _, field := range node.Fields {
+		if field.Default != nil {
+			defaultVal := Eval(field.Default, env)
+			if isError(defaultVal) {
+				return defaultVal
+			}
+			class.Fields[field.Name.Value] = defaultVal
+		} else {
+			class.Fields[field.Name.Value] = NIL
+		}
+	}
+
+	for _, method := range node.Methods {
+		fn := &Function{
+			Parameters: method.Parameters,
+			Body:       method.Body,
+			Env:        env,
+			Name:       method.Name.Value,
+		}
+		class.Methods[method.Name.Value] = fn
+	}
+
+	env.Set(node.Name.Value, class)
+	return class
+}
+
+func evalNewExpression(node *ast.NewExpression, env *Environment) Object {
+	namedType, ok := node.Type.(*ast.NamedType)
+	if !ok {
+		return &Error{Message: "new requires a class type"}
+	}
+
+	classObj, exists := env.Get(namedType.Name.Value)
+	if !exists {
+		return &Error{Message: "undefined class: " + namedType.Name.Value}
+	}
+
+	class, ok := classObj.(*Class)
+	if !ok {
+		return &Error{Message: namedType.Name.Value + " is not a class"}
+	}
+
+	instance := &Instance{
+		Class:  class,
+		Fields: make(map[string]Object),
+	}
+
+	for name, defaultVal := range class.Fields {
+		instance.Fields[name] = defaultVal
+	}
+
+	return instance
+}
+
+func evalBlockExpression(node *ast.BlockExpression, env *Environment) Object {
+	return evalBlockStatement(node.Block, env)
 }

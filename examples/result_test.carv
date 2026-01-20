@@ -1,0 +1,61 @@
+println("=== Result Types Test ===");
+
+let ok_val = Ok(42);
+println(ok_val);
+
+let err_val = Err("something went wrong");
+println(err_val);
+
+let result = Ok(100);
+let matched = match result {
+    Ok(v) => v * 2,
+    Err(e) => 0,
+};
+println(matched);
+
+let err_result = Err("error!");
+let matched2 = match err_result {
+    Ok(v) => v,
+    Err(e) => -1,
+};
+println(matched2);
+
+println("=== Class Test ===");
+
+class Counter {
+    value: int = 0
+
+    fn increment() {
+        self.value = self.value + 1;
+    }
+
+    fn get_value() -> int {
+        return self.value;
+    }
+}
+
+let c = new Counter;
+println(c.get_value());
+c.increment();
+println(c.get_value());
+c.increment();
+c.increment();
+println(c.get_value());
+
+println("=== Member Assignment Test ===");
+
+class Point {
+    x: int = 0
+    y: int = 0
+}
+
+let p = new Point;
+p.x = 10;
+p.y = 20;
+println(p.x);
+println(p.y);
+
+p.x += 5;
+println(p.x);
+
+println("=== Done ===");

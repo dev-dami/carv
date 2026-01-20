@@ -1,0 +1,25 @@
+fn may_fail(succeed: bool) {
+    if succeed {
+        return Ok(42);
+    } else {
+        return Err("failed!");
+    }
+}
+
+fn test_try() {
+    let result = may_fail(true)?;
+    println(result);
+    return Ok(result * 2);
+}
+
+let final_result = test_try();
+println(final_result);
+
+fn test_try_fail() {
+    let result = may_fail(false)?;
+    println("This should not print");
+    return Ok(result);
+}
+
+let fail_result = test_try_fail();
+println(fail_result);

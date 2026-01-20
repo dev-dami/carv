@@ -23,6 +23,10 @@ const (
 	ARRAY_OBJ        ObjectType = "ARRAY"
 	BREAK_OBJ        ObjectType = "BREAK"
 	CONTINUE_OBJ     ObjectType = "CONTINUE"
+	OK_OBJ           ObjectType = "OK"
+	ERR_OBJ          ObjectType = "ERR"
+	INSTANCE_OBJ     ObjectType = "INSTANCE"
+	CLASS_OBJ        ObjectType = "CLASS"
 )
 
 type Object interface {
@@ -138,6 +142,47 @@ type Continue struct{}
 
 func (c *Continue) Type() ObjectType { return CONTINUE_OBJ }
 func (c *Continue) Inspect() string  { return "continue" }
+
+type Ok struct {
+	Value Object
+}
+
+func (o *Ok) Type() ObjectType { return OK_OBJ }
+func (o *Ok) Inspect() string  { return fmt.Sprintf("Ok(%s)", o.Value.Inspect()) }
+
+type Err struct {
+	Value Object
+}
+
+func (e *Err) Type() ObjectType { return ERR_OBJ }
+func (e *Err) Inspect() string  { return fmt.Sprintf("Err(%s)", e.Value.Inspect()) }
+
+type Class struct {
+	Name    string
+	Fields  map[string]Object
+	Methods map[string]*Function
+}
+
+func (c *Class) Type() ObjectType { return CLASS_OBJ }
+func (c *Class) Inspect() string  { return fmt.Sprintf("<class %s>", c.Name) }
+
+type Instance struct {
+	Class  *Class
+	Fields map[string]Object
+}
+
+func (i *Instance) Type() ObjectType { return INSTANCE_OBJ }
+func (i *Instance) Inspect() string {
+	return fmt.Sprintf("<%s instance>", i.Class.Name)
+}
+
+type Method struct {
+	Instance *Instance
+	Fn       *Function
+}
+
+func (m *Method) Type() ObjectType { return FUNCTION_OBJ }
+func (m *Method) Inspect() string  { return fmt.Sprintf("<method %s>", m.Fn.Name) }
 
 var (
 	NIL   = &Nil{}
