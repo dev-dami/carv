@@ -5,16 +5,18 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/dev-dami/carv/pkg/codegen"
 	"github.com/dev-dami/carv/pkg/eval"
 	"github.com/dev-dami/carv/pkg/lexer"
+	"github.com/dev-dami/carv/pkg/module"
 	"github.com/dev-dami/carv/pkg/parser"
 	"github.com/dev-dami/carv/pkg/types"
 )
 
-const version = "0.0.1-dev"
+const version = "0.2.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -47,6 +49,8 @@ func main() {
 		emitC(os.Args[2])
 	case "repl":
 		runRepl()
+	case "init":
+		initProject()
 	default:
 		if strings.HasSuffix(os.Args[1], ".carv") {
 			runFile(os.Args[1])
@@ -67,6 +71,7 @@ Commands:
   run <file>   Run a Carv source file (interpreted)
   build <file> Compile to native binary via C
   emit-c <file> Output generated C code
+  init         Initialize a new Carv project with carv.toml
   repl         Start interactive REPL
   version      Print version info
   help         Show this help
@@ -75,7 +80,53 @@ Examples:
   carv run hello.carv
   carv build hello.carv
   carv hello.carv
+  carv init
   carv repl`)
+}
+
+func initProject() {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error getting current directory: %s\n", err)
+		os.Exit(1)
+	}
+
+	name := filepath.Base(cwd)
+	cfg := module.DefaultConfig(name)
+
+	if err := cfg.Save(cwd); err != nil {
+		fmt.Fprintf(os.Stderr, "error creating carv.toml: %s\n", err)
+		os.Exit(1)
+	}
+
+	srcDir := filepath.Join(cwd, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "error creating src directory: %s\n", err)
+		os.Exit(1)
+	}
+
+	mainFile := filepath.Join(srcDir, "main.carv")
+	if _, err := os.Stat(mainFile); os.IsNotExist(err) {
+		mainContent := `// Welcome to Carv!
+
+fn main() {
+    let name = "World";
+    println(f"Hello, {name}!");
+}
+
+main();
+`
+		if err := os.WriteFile(mainFile, []byte(mainContent), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "error creating main.carv: %s\n", err)
+			os.Exit(1)
+		}
+	}
+
+	fmt.Printf("Initialized Carv project '%s'\n", name)
+	fmt.Println("  Created carv.toml")
+	fmt.Println("  Created src/main.carv")
+	fmt.Println("\nRun your project with:")
+	fmt.Println("  carv run src/main.carv")
 }
 
 func runFile(filename string) {
@@ -84,6 +135,22 @@ func runFile(filename string) {
 		fmt.Fprintf(os.Stderr, "error reading file: %s\n", err)
 		os.Exit(1)
 	}
+
+	absPath, _ := filepath.Abs(filename)
+	projectRoot, _ := module.FindProjectRoot(filepath.Dir(absPath))
+
+	cfg, err := module.LoadConfig(projectRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to load carv.toml: %s\n", err)
+	}
+
+	loader := module.NewLoader(projectRoot)
+	if cfg != nil {
+		loader.SetConfig(cfg)
+	}
+
+	eval.SetModuleLoader(loader)
+	eval.SetCurrentFile(absPath)
 
 	l := lexer.New(string(content))
 	p := parser.New(l)

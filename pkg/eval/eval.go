@@ -1,7 +1,10 @@
 package eval
 
 import (
+	"strings"
+
 	"github.com/dev-dami/carv/pkg/ast"
+	"github.com/dev-dami/carv/pkg/module"
 )
 
 func Eval(node ast.Node, env *Environment) Object {
@@ -179,6 +182,12 @@ func Eval(node ast.Node, env *Environment) Object {
 
 	case *ast.BlockExpression:
 		return evalBlockExpression(node, env)
+
+	case *ast.RequireStatement:
+		return evalRequireStatement(node, env)
+
+	case *ast.InterpolatedString:
+		return evalInterpolatedString(node, env)
 	}
 
 	return nil
@@ -1028,4 +1037,99 @@ func evalMapLiteral(node *ast.MapLiteral, env *Environment) Object {
 	}
 
 	return &Map{Pairs: pairs}
+}
+
+var moduleLoader *module.Loader
+var currentFile string
+
+func SetModuleLoader(loader *module.Loader) {
+	moduleLoader = loader
+}
+
+func SetCurrentFile(file string) {
+	currentFile = file
+}
+
+func evalRequireStatement(node *ast.RequireStatement, env *Environment) Object {
+	if moduleLoader == nil {
+		return &Error{Message: "module loader not initialized", Line: node.Token.Line, Column: node.Token.Column}
+	}
+
+	mod, err := moduleLoader.Load(node.Path.Value, currentFile)
+	if err != nil {
+		return &Error{Message: "failed to load module: " + err.Error(), Line: node.Token.Line, Column: node.Token.Column}
+	}
+
+	modEnv := NewEnvironment()
+	result := Eval(mod.Program, modEnv)
+	if isError(result) {
+		return result
+	}
+
+	if node.Alias != nil {
+		modObj := &Module{
+			Name:    node.Path.Value,
+			Exports: make(map[string]Object),
+		}
+		for name := range mod.Exports {
+			if val, ok := modEnv.Get(name); ok {
+				modObj.Exports[name] = val
+			}
+		}
+		env.Set(node.Alias.Value, modObj)
+		return NIL
+	}
+
+	if len(node.Names) > 0 {
+		for _, name := range node.Names {
+			if val, ok := modEnv.Get(name.Value); ok {
+				env.Set(name.Value, val)
+			} else {
+				return &Error{Message: "undefined export: " + name.Value, Line: name.Token.Line, Column: name.Token.Column}
+			}
+		}
+		return NIL
+	}
+
+	if node.All {
+		for name := range mod.Exports {
+			if val, ok := modEnv.Get(name); ok {
+				env.Set(name, val)
+			}
+		}
+		return NIL
+	}
+
+	modObj := &Module{
+		Name:    node.Path.Value,
+		Exports: make(map[string]Object),
+	}
+	for name := range mod.Exports {
+		if val, ok := modEnv.Get(name); ok {
+			modObj.Exports[name] = val
+		}
+	}
+	env.Set(getModuleName(node.Path.Value), modObj)
+	return NIL
+}
+
+func getModuleName(path string) string {
+	parts := strings.Split(path, "/")
+	name := parts[len(parts)-1]
+	name = strings.TrimSuffix(name, ".carv")
+	return name
+}
+
+func evalInterpolatedString(node *ast.InterpolatedString, env *Environment) Object {
+	var builder strings.Builder
+
+	for _, part := range node.Parts {
+		evaluated := Eval(part, env)
+		if isError(evaluated) {
+			return evaluated
+		}
+		builder.WriteString(evaluated.Inspect())
+	}
+
+	return &String{Value: builder.String()}
 }

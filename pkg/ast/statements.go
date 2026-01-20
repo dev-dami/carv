@@ -197,15 +197,27 @@ func (tas *TypeAliasStatement) TokenLiteral() string { return tas.Token.Literal 
 func (tas *TypeAliasStatement) Pos() (int, int)      { return tas.Token.Line, tas.Token.Column }
 
 type ImportStatement struct {
-	Token  lexer.Token
-	Path   *StringLiteral
-	Alias  *Identifier
-	Names  []*Identifier
+	Token lexer.Token
+	Path  *StringLiteral
+	Alias *Identifier
+	Names []*Identifier
 }
 
 func (is *ImportStatement) statementNode()       {}
 func (is *ImportStatement) TokenLiteral() string { return is.Token.Literal }
 func (is *ImportStatement) Pos() (int, int)      { return is.Token.Line, is.Token.Column }
+
+type RequireStatement struct {
+	Token lexer.Token
+	Path  *StringLiteral
+	Alias *Identifier
+	Names []*Identifier
+	All   bool
+}
+
+func (rs *RequireStatement) statementNode()       {}
+func (rs *RequireStatement) TokenLiteral() string { return rs.Token.Literal }
+func (rs *RequireStatement) Pos() (int, int)      { return rs.Token.Line, rs.Token.Column }
 
 type ModuleStatement struct {
 	Token lexer.Token

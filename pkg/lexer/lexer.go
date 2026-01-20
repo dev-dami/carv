@@ -191,7 +191,11 @@ func (l *Lexer) NextToken() Token {
 		tok.Type = TOKEN_EOF
 		tok.Literal = ""
 	default:
-		if isLetter(l.ch) {
+		if l.ch == 'f' && l.peekChar() == '"' {
+			l.readChar()
+			tok.Type = TOKEN_INTERP_STRING
+			tok.Literal = l.readString()
+		} else if isLetter(l.ch) {
 			tok.Literal = l.readIdentifier()
 			tok.Type = LookupIdent(tok.Literal)
 			return tok

@@ -125,6 +125,19 @@ func (m *MapType) Equals(other Type) bool {
 	return false
 }
 
+type ModuleType struct {
+	Name    string
+	Exports map[string]Type
+}
+
+func (m *ModuleType) String() string { return "module " + m.Name }
+func (m *ModuleType) Equals(other Type) bool {
+	if o, ok := other.(*ModuleType); ok {
+		return m.Name == o.Name
+	}
+	return false
+}
+
 var (
 	Int    = &BasicType{Name: "int"}
 	Float  = &BasicType{Name: "float"}
