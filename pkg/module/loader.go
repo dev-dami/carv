@@ -24,7 +24,10 @@ type Module struct {
 }
 
 func NewLoader(basePath string) *Loader {
-	absPath, _ := filepath.Abs(basePath)
+	absPath, err := filepath.Abs(basePath)
+	if err != nil {
+		absPath = basePath
+	}
 	return &Loader{
 		basePath:    absPath,
 		loadedFiles: make(map[string]*Module),

@@ -79,14 +79,14 @@ func TestFindProjectRoot(t *testing.T) {
 
 	// Create carv.toml
 	configPath := filepath.Join(tmpDir, "carv.toml")
-	err = os.WriteFile(configPath, []byte("[package]\nname = \"test\"\n"), 0644)
+	err = os.WriteFile(configPath, []byte("[package]\nname = \"test\"\n"), 0o644)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Create a subdirectory
 	subDir := filepath.Join(tmpDir, "src", "lib")
-	err = os.MkdirAll(subDir, 0755)
+	err = os.MkdirAll(subDir, 0o755)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,10 @@ func TestFindProjectRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	absRoot, _ := filepath.Abs(tmpDir)
+	absRoot, err := filepath.Abs(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if root != absRoot {
 		t.Errorf("expected root %q, got %q", absRoot, root)
 	}
@@ -122,7 +125,7 @@ output = "dist"
 optimize = true
 `
 	configPath := filepath.Join(tmpDir, "carv.toml")
-	err = os.WriteFile(configPath, []byte(configContent), 0644)
+	err = os.WriteFile(configPath, []byte(configContent), 0o644)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +184,7 @@ func TestConfigSave(t *testing.T) {
 
 	// Verify file exists
 	configPath := filepath.Join(tmpDir, "carv.toml")
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+	if _, statErr := os.Stat(configPath); os.IsNotExist(statErr) {
 		t.Error("carv.toml was not created")
 	}
 
@@ -209,14 +212,14 @@ func TestLoaderLoadRelativeModule(t *testing.T) {
 }
 `
 	mathPath := filepath.Join(tmpDir, "math.carv")
-	err = os.WriteFile(mathPath, []byte(mathContent), 0644)
+	err = os.WriteFile(mathPath, []byte(mathContent), 0o644)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Create main file
 	mainPath := filepath.Join(tmpDir, "main.carv")
-	err = os.WriteFile(mainPath, []byte("let x = 1;"), 0644)
+	err = os.WriteFile(mainPath, []byte("let x = 1;"), 0o644)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,13 +275,13 @@ pub class PublicClass {}
 class PrivateClass {}
 `
 	modPath := filepath.Join(tmpDir, "test.carv")
-	err = os.WriteFile(modPath, []byte(content), 0644)
+	err = os.WriteFile(modPath, []byte(content), 0o644)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	mainPath := filepath.Join(tmpDir, "main.carv")
-	err = os.WriteFile(mainPath, []byte("let x = 1;"), 0644)
+	err = os.WriteFile(mainPath, []byte("let x = 1;"), 0o644)
 	if err != nil {
 		t.Fatal(err)
 	}

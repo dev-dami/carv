@@ -210,39 +210,53 @@ func (p *Parser) ParseProgram() *ast.Program {
 }
 
 func (p *Parser) parseStatement() ast.Statement {
+	var stmt ast.Statement
 	switch p.curToken.Type {
 	case lexer.TOKEN_PUB:
-		return p.parsePublicStatement()
+		stmt = p.parsePublicStatement()
 	case lexer.TOKEN_LET:
-		return p.parseLetStatement()
+		stmt = p.parseLetStatement()
 	case lexer.TOKEN_MUT:
-		return p.parseLetStatement()
+		stmt = p.parseLetStatement()
 	case lexer.TOKEN_CONST:
-		return p.parseConstStatement()
+		stmt = p.parseConstStatement()
 	case lexer.TOKEN_RETURN:
-		return p.parseReturnStatement()
+		stmt = p.parseReturnStatement()
 	case lexer.TOKEN_FN:
-		return p.parseFunctionStatement()
+		stmt = p.parseFunctionStatement()
 	case lexer.TOKEN_CLASS:
-		return p.parseClassStatement()
+		stmt = p.parseClassStatement()
 	case lexer.TOKEN_FOR:
-		return p.parseForStatement()
+		stmt = p.parseForStatement()
 	case lexer.TOKEN_WHILE:
-		return p.parseWhileStatement()
+		stmt = p.parseWhileStatement()
 	case lexer.TOKEN_BREAK:
-		return p.parseBreakStatement()
+		stmt = p.parseBreakStatement()
 	case lexer.TOKEN_CONTINUE:
-		return p.parseContinueStatement()
+		stmt = p.parseContinueStatement()
 	case lexer.TOKEN_REQUIRE:
-		return p.parseRequireStatement()
+		stmt = p.parseRequireStatement()
 	case lexer.TOKEN_IF:
 		expr := p.parseIfExpression()
 		if expr != nil {
-			return &ast.ExpressionStatement{Token: p.curToken, Expression: expr}
+			stmt = &ast.ExpressionStatement{Token: p.curToken, Expression: expr}
+			break
 		}
-		return nil
+		stmt = nil
 	default:
-		return p.parseExpressionStatement()
+		stmt = p.parseExpressionStatement()
+	}
+
+	if stmt == nil {
+		p.synchronize()
+	}
+
+	return stmt
+}
+
+func (p *Parser) synchronize() {
+	for !p.curTokenIs(lexer.TOKEN_SEMI) && !p.curTokenIs(lexer.TOKEN_RBRACE) && !p.curTokenIs(lexer.TOKEN_EOF) {
+		p.nextToken()
 	}
 }
 
@@ -1182,9 +1196,7 @@ func (p *Parser) parseInterpolatedString() ast.Expression {
 			parsedExpr := exprParser.parseExpression(LOWEST)
 
 			if len(exprParser.Errors()) > 0 {
-				for _, err := range exprParser.Errors() {
-					p.errors = append(p.errors, err)
-				}
+				p.errors = append(p.errors, exprParser.Errors()...)
 			}
 
 			if parsedExpr != nil {

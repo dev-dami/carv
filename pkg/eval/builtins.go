@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -201,7 +202,7 @@ var builtins = map[string]*Builtin{
 			if !ok {
 				return newError("write_file() second argument must be a string")
 			}
-			err := os.WriteFile(path.Value, []byte(content.Value), 0644)
+			err := os.WriteFile(path.Value, []byte(content.Value), 0o644)
 			if err != nil {
 				return newError("write_file: %s", err.Error())
 			}
@@ -639,7 +640,8 @@ var builtins = map[string]*Builtin{
 			cmd.Stderr = os.Stderr
 			err := cmd.Run()
 			if err != nil {
-				if exitErr, ok := err.(*exec.ExitError); ok {
+				var exitErr *exec.ExitError
+				if errors.As(err, &exitErr) {
 					return &Integer{Value: int64(exitErr.ExitCode())}
 				}
 				return newError("exec: %s", err.Error())
@@ -667,7 +669,8 @@ var builtins = map[string]*Builtin{
 			cmd := exec.Command(cmdStr.Value, cmdArgs...)
 			output, err := cmd.Output()
 			if err != nil {
-				if exitErr, ok := err.(*exec.ExitError); ok {
+				var exitErr *exec.ExitError
+				if errors.As(err, &exitErr) {
 					return &Err{Value: &String{Value: string(exitErr.Stderr)}}
 				}
 				return &Err{Value: &String{Value: err.Error()}}
@@ -684,7 +687,7 @@ var builtins = map[string]*Builtin{
 			if !ok {
 				return newError("mkdir() argument must be a string")
 			}
-			err := os.MkdirAll(path.Value, 0755)
+			err := os.MkdirAll(path.Value, 0o755)
 			if err != nil {
 				return newError("mkdir: %s", err.Error())
 			}
@@ -704,7 +707,7 @@ var builtins = map[string]*Builtin{
 			if !ok {
 				return newError("append_file() second argument must be a string")
 			}
-			f, err := os.OpenFile(path.Value, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			f, err := os.OpenFile(path.Value, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 			if err != nil {
 				return newError("append_file: %s", err.Error())
 			}

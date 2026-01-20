@@ -668,11 +668,11 @@ func evalIfExpression(ie *ast.IfExpression, env *Environment) Object {
 
 	if isTruthy(condition) {
 		return Eval(ie.Consequence, env)
-	} else if ie.Alternative != nil {
-		return Eval(ie.Alternative, env)
-	} else {
-		return NIL
 	}
+	if ie.Alternative != nil {
+		return Eval(ie.Alternative, env)
+	}
+	return NIL
 }
 
 func evalForStatement(node *ast.ForStatement, env *Environment) Object {
@@ -819,9 +819,9 @@ func evalMapIndexExpression(mapObj, index Object) Object {
 func evalArrayIndexExpression(array, index Object) Object {
 	arrayObject := array.(*Array)
 	idx := index.(*Integer).Value
-	max := int64(len(arrayObject.Elements) - 1)
+	maxIdx := int64(len(arrayObject.Elements) - 1)
 
-	if idx < 0 || idx > max {
+	if idx < 0 || idx > maxIdx {
 		return NIL
 	}
 
@@ -831,9 +831,9 @@ func evalArrayIndexExpression(array, index Object) Object {
 func evalStringIndexExpression(str, index Object) Object {
 	stringObject := str.(*String)
 	idx := index.(*Integer).Value
-	max := int64(len(stringObject.Value) - 1)
+	maxIdx := int64(len(stringObject.Value) - 1)
 
-	if idx < 0 || idx > max {
+	if idx < 0 || idx > maxIdx {
 		return NIL
 	}
 

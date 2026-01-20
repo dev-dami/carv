@@ -1,4 +1,4 @@
-.PHONY: build test install clean fmt lint run help
+.PHONY: build test install clean fmt lint lint-fix run help check
 
 BINARY_NAME=carv
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -39,8 +39,14 @@ fmt:
 	$(GO) fmt ./...
 
 lint:
-	$(GO) vet ./...
-	@which staticcheck > /dev/null 2>&1 && staticcheck ./... || echo "staticcheck not installed"
+	@which golangci-lint > /dev/null 2>&1 || (echo "golangci-lint not installed. Run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest" && exit 1)
+	golangci-lint run ./...
+
+lint-fix:
+	@which golangci-lint > /dev/null 2>&1 || (echo "golangci-lint not installed. Run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest" && exit 1)
+	golangci-lint run --fix ./...
+
+check: fmt lint test
 
 run: build
 	./$(BUILD_DIR)/$(BINARY_NAME) run examples/hello.carv
@@ -64,7 +70,9 @@ help:
 	@echo "  make uninstall     Remove carv from /usr/local/bin"
 	@echo "  make clean         Remove build artifacts"
 	@echo "  make fmt           Format source code"
-	@echo "  make lint          Run linters"
+	@echo "  make lint          Run golangci-lint"
+	@echo "  make lint-fix      Run golangci-lint with auto-fix"
+	@echo "  make check         Run fmt, lint, and test"
 	@echo "  make run           Build and run examples/hello.carv"
 	@echo "  make repl          Start interactive REPL"
 	@echo "  make examples      Compile example programs"
