@@ -117,10 +117,14 @@ const (
 	TOKEN_RECV   // recv
 
 	// Module
-	TOKEN_IMPORT // import
-	TOKEN_EXPORT // export
-	TOKEN_MODULE // module
-	TOKEN_FROM   // from
+	TOKEN_IMPORT  // import
+	TOKEN_EXPORT  // export
+	TOKEN_MODULE  // module
+	TOKEN_FROM    // from
+	TOKEN_REQUIRE // require
+
+	// String interpolation
+	TOKEN_INTERP_STRING // f"hello {name}"
 
 	// Types
 	TOKEN_INT_TYPE    // int
@@ -233,10 +237,12 @@ var tokenNames = map[TokenType]string{
 	TOKEN_SEND:   "send",
 	TOKEN_RECV:   "recv",
 
-	TOKEN_IMPORT: "import",
-	TOKEN_EXPORT: "export",
-	TOKEN_MODULE: "module",
-	TOKEN_FROM:   "from",
+	TOKEN_IMPORT:        "import",
+	TOKEN_EXPORT:        "export",
+	TOKEN_MODULE:        "module",
+	TOKEN_FROM:          "from",
+	TOKEN_REQUIRE:       "require",
+	TOKEN_INTERP_STRING: "INTERP_STRING",
 
 	TOKEN_INT_TYPE:    "int",
 	TOKEN_FLOAT_TYPE:  "float",
@@ -294,6 +300,7 @@ var keywords = map[string]TokenType{
 	"export":    TOKEN_EXPORT,
 	"module":    TOKEN_MODULE,
 	"from":      TOKEN_FROM,
+	"require":   TOKEN_REQUIRE,
 	"true":      TOKEN_TRUE,
 	"false":     TOKEN_FALSE,
 	"nil":       TOKEN_NIL,

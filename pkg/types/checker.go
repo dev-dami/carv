@@ -118,6 +118,8 @@ func (c *Checker) checkStatement(stmt ast.Statement) {
 		c.checkLoopStatement(s)
 	case *ast.BlockStatement:
 		c.checkBlockStatement(s)
+	case *ast.RequireStatement:
+		c.checkRequireStatement(s)
 	}
 }
 
@@ -249,6 +251,16 @@ func (c *Checker) checkBlockStatement(s *ast.BlockStatement) {
 	}
 }
 
+func (c *Checker) checkRequireStatement(s *ast.RequireStatement) {
+	if s.Alias != nil {
+		c.scope.Define(s.Alias.Value, &ModuleType{Name: s.Path.Value})
+	} else if len(s.Names) > 0 {
+		for _, name := range s.Names {
+			c.scope.Define(name.Value, Any)
+		}
+	}
+}
+
 func (c *Checker) checkExpression(expr ast.Expression) Type {
 	if expr == nil {
 		return nil
@@ -293,6 +305,8 @@ func (c *Checker) checkExpression(expr ast.Expression) Type {
 		return c.checkMemberExpression(e)
 	case *ast.SpawnExpression:
 		return c.checkSpawnExpression(e)
+	case *ast.InterpolatedString:
+		return c.checkInterpolatedString(e)
 	}
 
 	return Any
@@ -549,6 +563,13 @@ func (c *Checker) checkMemberExpression(e *ast.MemberExpression) Type {
 func (c *Checker) checkSpawnExpression(e *ast.SpawnExpression) Type {
 	c.checkBlockStatement(e.Body)
 	return Void
+}
+
+func (c *Checker) checkInterpolatedString(e *ast.InterpolatedString) Type {
+	for _, part := range e.Parts {
+		c.checkExpression(part)
+	}
+	return String
 }
 
 func (c *Checker) resolveTypeExpr(typeExpr ast.TypeExpr) Type {

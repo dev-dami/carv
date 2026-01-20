@@ -28,6 +28,7 @@ const (
 	INSTANCE_OBJ     ObjectType = "INSTANCE"
 	CLASS_OBJ        ObjectType = "CLASS"
 	MAP_OBJ          ObjectType = "MAP"
+	MODULE_OBJ       ObjectType = "MODULE"
 )
 
 type Object interface {
@@ -237,6 +238,14 @@ func (m *Map) Inspect() string {
 	}
 	return "{" + strings.Join(pairs, ", ") + "}"
 }
+
+type Module struct {
+	Name    string
+	Exports map[string]Object
+}
+
+func (m *Module) Type() ObjectType { return MODULE_OBJ }
+func (m *Module) Inspect() string  { return fmt.Sprintf("<module %s>", m.Name) }
 
 var (
 	NIL   = &Nil{}

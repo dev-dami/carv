@@ -76,6 +76,15 @@ func (sl *StringLiteral) expressionNode()      {}
 func (sl *StringLiteral) TokenLiteral() string { return sl.Token.Literal }
 func (sl *StringLiteral) Pos() (int, int)      { return sl.Token.Line, sl.Token.Column }
 
+type InterpolatedString struct {
+	Token lexer.Token
+	Parts []Expression
+}
+
+func (is *InterpolatedString) expressionNode()      {}
+func (is *InterpolatedString) TokenLiteral() string { return is.Token.Literal }
+func (is *InterpolatedString) Pos() (int, int)      { return is.Token.Line, is.Token.Column }
+
 type CharLiteral struct {
 	Token lexer.Token
 	Value rune

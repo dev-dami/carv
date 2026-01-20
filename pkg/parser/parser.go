@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/dev-dami/carv/pkg/ast"
 	"github.com/dev-dami/carv/pkg/lexer"
@@ -100,6 +101,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(lexer.TOKEN_MATCH, p.parseMatchExpression)
 	p.registerPrefix(lexer.TOKEN_SELF, p.parseSelfExpression)
 	p.registerPrefix(lexer.TOKEN_LBRACE, p.parseMapLiteral)
+	p.registerPrefix(lexer.TOKEN_INTERP_STRING, p.parseInterpolatedString)
 
 	p.infixParseFns = make(map[lexer.TokenType]infixParseFn)
 	p.registerInfix(lexer.TOKEN_PLUS, p.parseInfixExpression)
@@ -229,6 +231,8 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseBreakStatement()
 	case lexer.TOKEN_CONTINUE:
 		return p.parseContinueStatement()
+	case lexer.TOKEN_REQUIRE:
+		return p.parseRequireStatement()
 	case lexer.TOKEN_IF:
 		expr := p.parseIfExpression()
 		if expr != nil {
@@ -548,6 +552,85 @@ func (p *Parser) parseContinueStatement() *ast.ContinueStatement {
 		return nil
 	}
 	return stmt
+}
+
+func (p *Parser) parseRequireStatement() *ast.RequireStatement {
+	stmt := &ast.RequireStatement{Token: p.curToken}
+
+	if p.peekTokenIs(lexer.TOKEN_STRING) {
+		p.nextToken()
+		stmt.Path = &ast.StringLiteral{Token: p.curToken, Value: p.curToken.Literal}
+
+		if p.peekTokenIs(lexer.TOKEN_AS) {
+			p.nextToken()
+			if !p.expectPeek(lexer.TOKEN_IDENT) {
+				return nil
+			}
+			stmt.Alias = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+		}
+
+		if !p.expectPeek(lexer.TOKEN_SEMI) {
+			return nil
+		}
+		return stmt
+	}
+
+	if p.peekTokenIs(lexer.TOKEN_LBRACE) {
+		p.nextToken()
+		stmt.Names = []*ast.Identifier{}
+
+		if !p.peekTokenIs(lexer.TOKEN_RBRACE) {
+			p.nextToken()
+			stmt.Names = append(stmt.Names, &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal})
+
+			for p.peekTokenIs(lexer.TOKEN_COMMA) {
+				p.nextToken()
+				p.nextToken()
+				stmt.Names = append(stmt.Names, &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal})
+			}
+		}
+
+		if !p.expectPeek(lexer.TOKEN_RBRACE) {
+			return nil
+		}
+
+		if !p.expectPeek(lexer.TOKEN_FROM) {
+			return nil
+		}
+
+		if !p.expectPeek(lexer.TOKEN_STRING) {
+			return nil
+		}
+		stmt.Path = &ast.StringLiteral{Token: p.curToken, Value: p.curToken.Literal}
+
+		if !p.expectPeek(lexer.TOKEN_SEMI) {
+			return nil
+		}
+		return stmt
+	}
+
+	if p.peekTokenIs(lexer.TOKEN_STAR) {
+		p.nextToken()
+		stmt.All = true
+
+		if !p.expectPeek(lexer.TOKEN_FROM) {
+			return nil
+		}
+
+		if !p.expectPeek(lexer.TOKEN_STRING) {
+			return nil
+		}
+		stmt.Path = &ast.StringLiteral{Token: p.curToken, Value: p.curToken.Literal}
+
+		if !p.expectPeek(lexer.TOKEN_SEMI) {
+			return nil
+		}
+		return stmt
+	}
+
+	p.errors = append(p.errors, fmt.Sprintf("line %d:%d: expected string, { or * after require",
+		p.peekToken.Line, p.peekToken.Column))
+	return nil
 }
 
 func (p *Parser) parseBlockStatement() *ast.BlockStatement {
@@ -975,6 +1058,73 @@ func (p *Parser) parseMatchArm() *ast.MatchArm {
 
 func (p *Parser) parseSelfExpression() ast.Expression {
 	return &ast.Identifier{Token: p.curToken, Value: "self"}
+}
+
+func (p *Parser) parseInterpolatedString() ast.Expression {
+	expr := &ast.InterpolatedString{Token: p.curToken}
+	expr.Parts = []ast.Expression{}
+
+	str := p.curToken.Literal
+	var current strings.Builder
+	i := 0
+
+	for i < len(str) {
+		if str[i] == '{' && i+1 < len(str) && str[i+1] != '{' {
+			if current.Len() > 0 {
+				expr.Parts = append(expr.Parts, &ast.StringLiteral{
+					Token: p.curToken,
+					Value: current.String(),
+				})
+				current.Reset()
+			}
+
+			end := i + 1
+			braceCount := 1
+			for end < len(str) && braceCount > 0 {
+				if str[end] == '{' {
+					braceCount++
+				} else if str[end] == '}' {
+					braceCount--
+				}
+				end++
+			}
+
+			exprStr := str[i+1 : end-1]
+			exprLexer := lexer.New(exprStr)
+			exprParser := New(exprLexer)
+			parsedExpr := exprParser.parseExpression(LOWEST)
+
+			if len(exprParser.Errors()) > 0 {
+				for _, err := range exprParser.Errors() {
+					p.errors = append(p.errors, err)
+				}
+			}
+
+			if parsedExpr != nil {
+				expr.Parts = append(expr.Parts, parsedExpr)
+			}
+
+			i = end
+		} else if str[i] == '{' && i+1 < len(str) && str[i+1] == '{' {
+			current.WriteByte('{')
+			i += 2
+		} else if str[i] == '}' && i+1 < len(str) && str[i+1] == '}' {
+			current.WriteByte('}')
+			i += 2
+		} else {
+			current.WriteByte(str[i])
+			i++
+		}
+	}
+
+	if current.Len() > 0 {
+		expr.Parts = append(expr.Parts, &ast.StringLiteral{
+			Token: p.curToken,
+			Value: current.String(),
+		})
+	}
+
+	return expr
 }
 
 func (p *Parser) parseMapLiteral() ast.Expression {
