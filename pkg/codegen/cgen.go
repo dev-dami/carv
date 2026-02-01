@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/dev-dami/carv/pkg/ast"
+	"github.com/dev-dami/carv/pkg/types"
 )
 
 type CGenerator struct {
@@ -14,6 +15,7 @@ type CGenerator struct {
 	arrayLengths  map[string]int
 	varTypes      map[string]string
 	fnReturnTypes map[string]string
+	typeInfo      map[ast.Expression]types.Type
 }
 
 func NewCGenerator() *CGenerator {
@@ -22,6 +24,67 @@ func NewCGenerator() *CGenerator {
 		varTypes:      make(map[string]string),
 		fnReturnTypes: make(map[string]string),
 	}
+}
+
+func (g *CGenerator) SetTypeInfo(info map[ast.Expression]types.Type) {
+	g.typeInfo = info
+}
+
+func checkerTypeToCString(t types.Type) string {
+	if t == nil {
+		return ""
+	}
+	switch {
+	case t.Equals(types.Int):
+		return "carv_int"
+	case t.Equals(types.Float):
+		return "carv_float"
+	case t.Equals(types.Bool):
+		return "carv_bool"
+	case t.Equals(types.String):
+		return "carv_string"
+	case t.Equals(types.Char):
+		return "carv_int"
+	case t.Equals(types.Void):
+		return "void"
+	case t.Equals(types.Nil):
+		return "void*"
+	}
+	if arr, ok := t.(*types.ArrayType); ok {
+		elem := checkerTypeToCString(arr.Element)
+		switch elem {
+		case "carv_int":
+			return "carv_int_array"
+		case "carv_float":
+			return "carv_float_array"
+		case "carv_string":
+			return "carv_string_array"
+		case "carv_bool":
+			return "carv_bool_array"
+		}
+		return "carv_int_array"
+	}
+	if _, ok := t.(*types.MapType); ok {
+		return "carv_int"
+	}
+	if cls, ok := t.(*types.ClassType); ok {
+		return cls.Name + "*"
+	}
+	if _, ok := t.(*types.FunctionType); ok {
+		return "void*"
+	}
+	return ""
+}
+
+func (g *CGenerator) resolveType(expr ast.Expression) string {
+	if g.typeInfo != nil {
+		if t, ok := g.typeInfo[expr]; ok {
+			if cs := checkerTypeToCString(t); cs != "" {
+				return cs
+			}
+		}
+	}
+	return g.inferExprType(expr)
 }
 
 func (g *CGenerator) getVarType(name string) string {
@@ -62,9 +125,9 @@ func (g *CGenerator) inferResultPayloadTypes(body *ast.BlockStatement) (okType, 
 	for _, stmt := range body.Statements {
 		if ret, ok := stmt.(*ast.ReturnStatement); ok && ret.ReturnValue != nil {
 			if okExpr, isOk := ret.ReturnValue.(*ast.OkExpression); isOk {
-				okType = g.inferExprType(okExpr.Value)
+				okType = g.resolveType(okExpr.Value)
 			} else if errExpr, isErr := ret.ReturnValue.(*ast.ErrExpression); isErr {
-				errType = g.inferExprType(errExpr.Value)
+				errType = g.resolveType(errExpr.Value)
 			}
 		}
 	}
@@ -454,7 +517,7 @@ func (g *CGenerator) functionReturnsResult(body *ast.BlockStatement) bool {
 func (g *CGenerator) inferReturnTypeFromBody(body *ast.BlockStatement) string {
 	for _, stmt := range body.Statements {
 		if ret, ok := stmt.(*ast.ReturnStatement); ok && ret.ReturnValue != nil {
-			return g.inferExprType(ret.ReturnValue)
+			return g.resolveType(ret.ReturnValue)
 		}
 	}
 	return ""
@@ -838,7 +901,7 @@ func (g *CGenerator) generateInfixExpression(e *ast.InfixExpression) string {
 
 func (g *CGenerator) generatePipeExpression(e *ast.PipeExpression) string {
 	left := g.generateExpression(e.Left)
-	leftType := g.inferExprType(e.Left)
+	leftType := g.resolveType(e.Left)
 
 	switch right := e.Right.(type) {
 	case *ast.Identifier:
@@ -1013,11 +1076,11 @@ func (g *CGenerator) generatePrintCall(e *ast.CallExpression) string {
 		}
 
 		argStr := g.generateExpression(arg)
-		argType := g.inferExprType(arg)
+		argType := g.resolveType(arg)
 
 		if arr, ok := arg.(*ast.ArrayLiteral); ok {
 			if len(arr.Elements) > 0 {
-				elemType := g.inferExprType(arr.Elements[0])
+				elemType := g.resolveType(arr.Elements[0])
 				parts = append(parts, g.generateArrayPrint(argStr, elemType))
 			} else {
 				parts = append(parts, fmt.Sprintf("carv_print_int_array(%s)", argStr))
@@ -1108,7 +1171,7 @@ func (g *CGenerator) generateIfExpression(e *ast.IfExpression) string {
 func (g *CGenerator) inferIfExprType(e *ast.IfExpression) string {
 	if len(e.Consequence.Statements) > 0 {
 		if last, ok := e.Consequence.Statements[len(e.Consequence.Statements)-1].(*ast.ExpressionStatement); ok {
-			return g.inferExprType(last.Expression)
+			return g.resolveType(last.Expression)
 		}
 	}
 	return "carv_int"
@@ -1139,7 +1202,7 @@ func (g *CGenerator) generateArrayLiteral(e *ast.ArrayLiteral) string {
 		return "carv_new_int_array(0)"
 	}
 
-	elemType := g.inferExprType(e.Elements[0])
+	elemType := g.resolveType(e.Elements[0])
 	arrayType := g.getArrayType(elemType)
 	tempName := fmt.Sprintf("__arr_%d", g.tempCounter)
 	g.tempCounter++
@@ -1204,7 +1267,7 @@ func (g *CGenerator) convertToString(expr ast.Expression) string {
 	}
 
 	exprStr := g.generateExpression(expr)
-	exprType := g.inferExprType(expr)
+	exprType := g.resolveType(expr)
 
 	switch exprType {
 	case "carv_string":
@@ -1224,7 +1287,7 @@ func (g *CGenerator) inferArrayElemType(expr ast.Expression) string {
 	switch e := expr.(type) {
 	case *ast.ArrayLiteral:
 		if len(e.Elements) > 0 {
-			return g.inferExprType(e.Elements[0])
+			return g.resolveType(e.Elements[0])
 		}
 	case *ast.Identifier:
 		return "carv_int"
@@ -1269,7 +1332,7 @@ func (g *CGenerator) paramsToC(params []*ast.Parameter) string {
 }
 
 func (g *CGenerator) inferType(expr ast.Expression) string {
-	return g.inferExprType(expr)
+	return g.resolveType(expr)
 }
 
 func (g *CGenerator) inferExprType(expr ast.Expression) string {
@@ -1347,7 +1410,7 @@ func (g *CGenerator) inferCallType(e *ast.CallExpression) string {
 
 func (g *CGenerator) generateOkExpression(e *ast.OkExpression) string {
 	val := g.generateExpression(e.Value)
-	valType := g.inferExprType(e.Value)
+	valType := g.resolveType(e.Value)
 
 	switch valType {
 	case "carv_int":
@@ -1365,7 +1428,7 @@ func (g *CGenerator) generateOkExpression(e *ast.OkExpression) string {
 
 func (g *CGenerator) generateErrExpression(e *ast.ErrExpression) string {
 	val := g.generateExpression(e.Value)
-	valType := g.inferExprType(e.Value)
+	valType := g.resolveType(e.Value)
 
 	switch valType {
 	case "carv_string":
@@ -1392,7 +1455,7 @@ func (g *CGenerator) generateTryExpression(e *ast.TryExpression) string {
 func (g *CGenerator) inferResultOkType(expr ast.Expression) string {
 	switch e := expr.(type) {
 	case *ast.OkExpression:
-		return g.inferExprType(e.Value)
+		return g.resolveType(e.Value)
 	case *ast.CallExpression:
 		if ident, ok := e.Function.(*ast.Identifier); ok {
 			if retType, exists := g.varTypes[ident.Value+"_result_ok"]; exists {
@@ -1482,7 +1545,7 @@ func (g *CGenerator) generateMatchExpression(e *ast.MatchExpression) string {
 func (g *CGenerator) inferResultErrType(expr ast.Expression) string {
 	switch e := expr.(type) {
 	case *ast.ErrExpression:
-		return g.inferExprType(e.Value)
+		return g.resolveType(e.Value)
 	case *ast.CallExpression:
 		if ident, ok := e.Function.(*ast.Identifier); ok {
 			if retType, exists := g.varTypes[ident.Value+"_result_err"]; exists {

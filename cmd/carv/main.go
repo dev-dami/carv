@@ -262,6 +262,7 @@ func emitC(filename string) {
 	}
 
 	gen := codegen.NewCGenerator()
+	gen.SetTypeInfo(checker.TypeInfo())
 	cCode := gen.Generate(program)
 	fmt.Print(cCode)
 }
@@ -293,6 +294,7 @@ func buildFile(filename string) {
 	}
 
 	gen := codegen.NewCGenerator()
+	gen.SetTypeInfo(checker.TypeInfo())
 	cCode := gen.Generate(program)
 
 	baseName := strings.TrimSuffix(filename, ".carv")

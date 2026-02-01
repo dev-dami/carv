@@ -7,8 +7,9 @@ import (
 )
 
 type Checker struct {
-	errors []string
-	scope  *Scope
+	errors    []string
+	scope     *Scope
+	nodeTypes map[ast.Expression]Type
 }
 
 type Scope struct {
@@ -36,11 +37,23 @@ func (s *Scope) Lookup(name string) (Type, bool) {
 
 func NewChecker() *Checker {
 	c := &Checker{
-		errors: []string{},
-		scope:  NewScope(nil),
+		errors:    []string{},
+		scope:     NewScope(nil),
+		nodeTypes: make(map[ast.Expression]Type),
 	}
 	c.defineBuiltins()
 	return c
+}
+
+func (c *Checker) TypeInfo() map[ast.Expression]Type {
+	return c.nodeTypes
+}
+
+func (c *Checker) recordType(expr ast.Expression, t Type) Type {
+	if expr != nil && t != nil {
+		c.nodeTypes[expr] = t
+	}
+	return t
 }
 
 func (c *Checker) defineBuiltins() {
@@ -278,50 +291,53 @@ func (c *Checker) checkExpression(expr ast.Expression) Type {
 		return nil
 	}
 
+	var t Type
 	switch e := expr.(type) {
 	case *ast.IntegerLiteral:
-		return Int
+		t = Int
 	case *ast.FloatLiteral:
-		return Float
+		t = Float
 	case *ast.StringLiteral:
-		return String
+		t = String
 	case *ast.CharLiteral:
-		return Char
+		t = Char
 	case *ast.BoolLiteral:
-		return Bool
+		t = Bool
 	case *ast.NilLiteral:
-		return Nil
+		t = Nil
 	case *ast.Identifier:
-		return c.checkIdentifier(e)
+		t = c.checkIdentifier(e)
 	case *ast.PrefixExpression:
-		return c.checkPrefixExpression(e)
+		t = c.checkPrefixExpression(e)
 	case *ast.InfixExpression:
-		return c.checkInfixExpression(e)
+		t = c.checkInfixExpression(e)
 	case *ast.PipeExpression:
-		return c.checkPipeExpression(e)
+		t = c.checkPipeExpression(e)
 	case *ast.AssignExpression:
-		return c.checkAssignExpression(e)
+		t = c.checkAssignExpression(e)
 	case *ast.CallExpression:
-		return c.checkCallExpression(e)
+		t = c.checkCallExpression(e)
 	case *ast.ArrayLiteral:
-		return c.checkArrayLiteral(e)
+		t = c.checkArrayLiteral(e)
 	case *ast.MapLiteral:
-		return c.checkMapLiteral(e)
+		t = c.checkMapLiteral(e)
 	case *ast.IndexExpression:
-		return c.checkIndexExpression(e)
+		t = c.checkIndexExpression(e)
 	case *ast.IfExpression:
-		return c.checkIfExpression(e)
+		t = c.checkIfExpression(e)
 	case *ast.FunctionLiteral:
-		return c.checkFunctionLiteral(e)
+		t = c.checkFunctionLiteral(e)
 	case *ast.MemberExpression:
-		return c.checkMemberExpression(e)
+		t = c.checkMemberExpression(e)
 	case *ast.SpawnExpression:
-		return c.checkSpawnExpression(e)
+		t = c.checkSpawnExpression(e)
 	case *ast.InterpolatedString:
-		return c.checkInterpolatedString(e)
+		t = c.checkInterpolatedString(e)
+	default:
+		t = Any
 	}
 
-	return Any
+	return c.recordType(expr, t)
 }
 
 func (c *Checker) checkIdentifier(e *ast.Identifier) Type {
