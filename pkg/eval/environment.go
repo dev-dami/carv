@@ -1,13 +1,17 @@
 package eval
 
 type Environment struct {
-	store map[string]Object
-	outer *Environment
+	store     map[string]Object
+	immutable map[string]bool
+	outer     *Environment
 }
 
 func NewEnvironment() *Environment {
-	s := make(map[string]Object)
-	return &Environment{store: s, outer: nil}
+	return &Environment{
+		store:     make(map[string]Object),
+		immutable: make(map[string]bool),
+		outer:     nil,
+	}
 }
 
 func NewEnclosedEnvironment(outer *Environment) *Environment {
@@ -27,6 +31,22 @@ func (e *Environment) Get(name string) (Object, bool) {
 func (e *Environment) Set(name string, val Object) Object {
 	e.store[name] = val
 	return val
+}
+
+func (e *Environment) SetImmutable(name string, val Object) Object {
+	e.store[name] = val
+	e.immutable[name] = true
+	return val
+}
+
+func (e *Environment) IsImmutable(name string) bool {
+	if imm, ok := e.immutable[name]; ok {
+		return imm
+	}
+	if e.outer != nil {
+		return e.outer.IsImmutable(name)
+	}
+	return false
 }
 
 func (e *Environment) Update(name string, val Object) (Object, bool) {
