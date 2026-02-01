@@ -8,17 +8,19 @@ import (
 )
 
 type CGenerator struct {
-	output       strings.Builder
-	indent       int
-	tempCounter  int
-	arrayLengths map[string]int
-	varTypes     map[string]string
+	output        strings.Builder
+	indent        int
+	tempCounter   int
+	arrayLengths  map[string]int
+	varTypes      map[string]string
+	fnReturnTypes map[string]string
 }
 
 func NewCGenerator() *CGenerator {
 	return &CGenerator{
-		arrayLengths: make(map[string]int),
-		varTypes:     make(map[string]string),
+		arrayLengths:  make(map[string]int),
+		varTypes:      make(map[string]string),
+		fnReturnTypes: make(map[string]string),
 	}
 }
 
@@ -29,7 +31,48 @@ func (g *CGenerator) getVarType(name string) string {
 	return ""
 }
 
+func (g *CGenerator) collectFunctionReturnTypes(program *ast.Program) {
+	for _, stmt := range program.Statements {
+		if fn, ok := stmt.(*ast.FunctionStatement); ok {
+			for _, p := range fn.Parameters {
+				pType := g.typeToC(p.Type)
+				g.varTypes[p.Name.Value] = pType
+			}
+
+			retType := g.inferFunctionReturnType(fn)
+			g.fnReturnTypes[fn.Name.Value] = retType
+
+			if retType == "carv_result" {
+				okType, errType := g.inferResultPayloadTypes(fn.Body)
+				g.varTypes[fn.Name.Value+"_result_ok"] = okType
+				g.varTypes[fn.Name.Value+"_result_err"] = errType
+			}
+
+			for _, p := range fn.Parameters {
+				delete(g.varTypes, p.Name.Value)
+			}
+		}
+	}
+}
+
+func (g *CGenerator) inferResultPayloadTypes(body *ast.BlockStatement) (okType, errType string) {
+	okType = "carv_int"
+	errType = "carv_string"
+
+	for _, stmt := range body.Statements {
+		if ret, ok := stmt.(*ast.ReturnStatement); ok && ret.ReturnValue != nil {
+			if okExpr, isOk := ret.ReturnValue.(*ast.OkExpression); isOk {
+				okType = g.inferExprType(okExpr.Value)
+			} else if errExpr, isErr := ret.ReturnValue.(*ast.ErrExpression); isErr {
+				errType = g.inferExprType(errExpr.Value)
+			}
+		}
+	}
+	return
+}
+
 func (g *CGenerator) Generate(program *ast.Program) string {
+	g.collectFunctionReturnTypes(program)
 	g.emitRuntime()
 
 	for _, stmt := range program.Statements {
@@ -77,6 +120,7 @@ func (g *CGenerator) Generate(program *ast.Program) string {
 		}
 	}
 
+	g.writeln("carv_arena_free_all();")
 	g.writeln("return 0;")
 	g.indent--
 	g.writeln("}")
@@ -90,6 +134,67 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("#include <string.h>")
 	g.writeln("#include <stdbool.h>")
 	g.writeln("")
+	g.writeln("// Arena allocator for automatic memory management")
+	g.writeln("#define CARV_ARENA_BLOCK_SIZE (1024 * 1024)  // 1MB blocks")
+	g.writeln("typedef struct carv_arena_block {")
+	g.writeln("    char* data;")
+	g.writeln("    size_t used;")
+	g.writeln("    size_t capacity;")
+	g.writeln("    struct carv_arena_block* next;")
+	g.writeln("} carv_arena_block;")
+	g.writeln("")
+	g.writeln("typedef struct {")
+	g.writeln("    carv_arena_block* head;")
+	g.writeln("    carv_arena_block* current;")
+	g.writeln("} carv_arena;")
+	g.writeln("")
+	g.writeln("static carv_arena carv_global_arena = {NULL, NULL};")
+	g.writeln("")
+	g.writeln("static carv_arena_block* carv_arena_new_block(size_t min_size) {")
+	g.writeln("    size_t size = min_size > CARV_ARENA_BLOCK_SIZE ? min_size : CARV_ARENA_BLOCK_SIZE;")
+	g.writeln("    carv_arena_block* block = (carv_arena_block*)malloc(sizeof(carv_arena_block));")
+	g.writeln("    block->data = (char*)malloc(size);")
+	g.writeln("    block->used = 0;")
+	g.writeln("    block->capacity = size;")
+	g.writeln("    block->next = NULL;")
+	g.writeln("    return block;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static void* carv_arena_alloc(size_t size) {")
+	g.writeln("    size = (size + 7) & ~7;  // 8-byte alignment")
+	g.writeln("    if (!carv_global_arena.current || carv_global_arena.current->used + size > carv_global_arena.current->capacity) {")
+	g.writeln("        carv_arena_block* block = carv_arena_new_block(size);")
+	g.writeln("        if (carv_global_arena.current) {")
+	g.writeln("            carv_global_arena.current->next = block;")
+	g.writeln("        } else {")
+	g.writeln("            carv_global_arena.head = block;")
+	g.writeln("        }")
+	g.writeln("        carv_global_arena.current = block;")
+	g.writeln("    }")
+	g.writeln("    void* ptr = carv_global_arena.current->data + carv_global_arena.current->used;")
+	g.writeln("    carv_global_arena.current->used += size;")
+	g.writeln("    return ptr;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static void carv_arena_free_all(void) {")
+	g.writeln("    carv_arena_block* block = carv_global_arena.head;")
+	g.writeln("    while (block) {")
+	g.writeln("        carv_arena_block* next = block->next;")
+	g.writeln("        free(block->data);")
+	g.writeln("        free(block);")
+	g.writeln("        block = next;")
+	g.writeln("    }")
+	g.writeln("    carv_global_arena.head = NULL;")
+	g.writeln("    carv_global_arena.current = NULL;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static char* carv_strdup(const char* s) {")
+	g.writeln("    size_t len = strlen(s) + 1;")
+	g.writeln("    char* copy = (char*)carv_arena_alloc(len);")
+	g.writeln("    memcpy(copy, s, len);")
+	g.writeln("    return copy;")
+	g.writeln("}")
+	g.writeln("")
 	g.writeln("typedef long long carv_int;")
 	g.writeln("typedef double carv_float;")
 	g.writeln("typedef bool carv_bool;")
@@ -102,7 +207,7 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("")
 	g.writeln("carv_int_array carv_new_int_array(carv_int len) {")
 	g.writeln("    carv_int_array arr;")
-	g.writeln("    arr.data = (carv_int*)malloc(len * sizeof(carv_int));")
+	g.writeln("    arr.data = (carv_int*)carv_arena_alloc(len * sizeof(carv_int));")
 	g.writeln("    arr.len = len;")
 	g.writeln("    arr.cap = len;")
 	g.writeln("    return arr;")
@@ -110,7 +215,7 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("")
 	g.writeln("carv_float_array carv_new_float_array(carv_int len) {")
 	g.writeln("    carv_float_array arr;")
-	g.writeln("    arr.data = (carv_float*)malloc(len * sizeof(carv_float));")
+	g.writeln("    arr.data = (carv_float*)carv_arena_alloc(len * sizeof(carv_float));")
 	g.writeln("    arr.len = len;")
 	g.writeln("    arr.cap = len;")
 	g.writeln("    return arr;")
@@ -118,7 +223,7 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("")
 	g.writeln("carv_string_array carv_new_string_array(carv_int len) {")
 	g.writeln("    carv_string_array arr;")
-	g.writeln("    arr.data = (carv_string*)malloc(len * sizeof(carv_string));")
+	g.writeln("    arr.data = (carv_string*)carv_arena_alloc(len * sizeof(carv_string));")
 	g.writeln("    arr.len = len;")
 	g.writeln("    arr.cap = len;")
 	g.writeln("    return arr;")
@@ -138,6 +243,33 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("    printf(\"]\");")
 	g.writeln("}")
 	g.writeln("")
+	g.writeln("void carv_print_float_array(carv_float_array arr) {")
+	g.writeln("    printf(\"[\");")
+	g.writeln("    for (carv_int i = 0; i < arr.len; i++) {")
+	g.writeln("        if (i > 0) printf(\", \");")
+	g.writeln("        printf(\"%g\", arr.data[i]);")
+	g.writeln("    }")
+	g.writeln("    printf(\"]\");")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("void carv_print_string_array(carv_string_array arr) {")
+	g.writeln("    printf(\"[\");")
+	g.writeln("    for (carv_int i = 0; i < arr.len; i++) {")
+	g.writeln("        if (i > 0) printf(\", \");")
+	g.writeln("        printf(\"%s\", arr.data[i]);")
+	g.writeln("    }")
+	g.writeln("    printf(\"]\");")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("void carv_print_bool_array(carv_bool_array arr) {")
+	g.writeln("    printf(\"[\");")
+	g.writeln("    for (carv_int i = 0; i < arr.len; i++) {")
+	g.writeln("        if (i > 0) printf(\", \");")
+	g.writeln("        printf(\"%s\", arr.data[i] ? \"true\" : \"false\");")
+	g.writeln("    }")
+	g.writeln("    printf(\"]\");")
+	g.writeln("}")
+	g.writeln("")
 
 	g.writeln("carv_string carv_read_file(carv_string path) {")
 	g.writeln("    FILE* f = fopen(path, \"rb\");")
@@ -145,8 +277,7 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("    fseek(f, 0, SEEK_END);")
 	g.writeln("    long len = ftell(f);")
 	g.writeln("    fseek(f, 0, SEEK_SET);")
-	g.writeln("    char* buf = (char*)malloc(len + 1);")
-	g.writeln("    if (!buf) { fclose(f); return NULL; }")
+	g.writeln("    char* buf = (char*)carv_arena_alloc(len + 1);")
 	g.writeln("    size_t read = fread(buf, 1, len, f);")
 	g.writeln("    buf[read] = '\\0';")
 	g.writeln("    fclose(f);")
@@ -177,7 +308,7 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("    size_t sep_len = strlen(sep);")
 	g.writeln("    if (sep_len == 0) {")
 	g.writeln("        arr = carv_new_string_array(1);")
-	g.writeln("        arr.data[0] = strdup(str);")
+	g.writeln("        arr.data[0] = carv_strdup(str);")
 	g.writeln("        return arr;")
 	g.writeln("    }")
 	g.writeln("    // Count occurrences")
@@ -190,26 +321,26 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("    carv_int idx = 0;")
 	g.writeln("    while ((p = strstr(start, sep)) != NULL) {")
 	g.writeln("        size_t part_len = p - start;")
-	g.writeln("        arr.data[idx] = (char*)malloc(part_len + 1);")
+	g.writeln("        arr.data[idx] = (char*)carv_arena_alloc(part_len + 1);")
 	g.writeln("        memcpy(arr.data[idx], start, part_len);")
 	g.writeln("        arr.data[idx][part_len] = '\\0';")
 	g.writeln("        idx++;")
 	g.writeln("        start = p + sep_len;")
 	g.writeln("    }")
-	g.writeln("    arr.data[idx] = strdup(start);")
+	g.writeln("    arr.data[idx] = carv_strdup(start);")
 	g.writeln("    return arr;")
 	g.writeln("}")
 	g.writeln("")
 
 	g.writeln("carv_string carv_join(carv_string_array arr, carv_string sep) {")
-	g.writeln("    if (arr.len == 0) return strdup(\"\");")
+	g.writeln("    if (arr.len == 0) return carv_strdup(\"\");")
 	g.writeln("    size_t sep_len = sep ? strlen(sep) : 0;")
 	g.writeln("    size_t total = 0;")
 	g.writeln("    for (carv_int i = 0; i < arr.len; i++) {")
 	g.writeln("        if (arr.data[i]) total += strlen(arr.data[i]);")
 	g.writeln("    }")
 	g.writeln("    total += sep_len * (arr.len - 1) + 1;")
-	g.writeln("    char* result = (char*)malloc(total);")
+	g.writeln("    char* result = (char*)carv_arena_alloc(total);")
 	g.writeln("    result[0] = '\\0';")
 	g.writeln("    for (carv_int i = 0; i < arr.len; i++) {")
 	g.writeln("        if (i > 0 && sep) strcat(result, sep);")
@@ -220,13 +351,13 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("")
 
 	g.writeln("carv_string carv_trim(carv_string str) {")
-	g.writeln("    if (!str) return strdup(\"\");")
+	g.writeln("    if (!str) return carv_strdup(\"\");")
 	g.writeln("    while (*str && (*str == ' ' || *str == '\\t' || *str == '\\n' || *str == '\\r')) str++;")
-	g.writeln("    if (*str == '\\0') return strdup(\"\");")
+	g.writeln("    if (*str == '\\0') return carv_strdup(\"\");")
 	g.writeln("    char* end = str + strlen(str) - 1;")
 	g.writeln("    while (end > str && (*end == ' ' || *end == '\\t' || *end == '\\n' || *end == '\\r')) end--;")
 	g.writeln("    size_t len = end - str + 1;")
-	g.writeln("    char* result = (char*)malloc(len + 1);")
+	g.writeln("    char* result = (char*)carv_arena_alloc(len + 1);")
 	g.writeln("    memcpy(result, str, len);")
 	g.writeln("    result[len] = '\\0';")
 	g.writeln("    return result;")
@@ -234,15 +365,15 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("")
 
 	g.writeln("carv_string carv_substr(carv_string str, carv_int start, carv_int end) {")
-	g.writeln("    if (!str) return strdup(\"\");")
+	g.writeln("    if (!str) return carv_strdup(\"\");")
 	g.writeln("    size_t str_len = strlen(str);")
 	g.writeln("    if (start < 0) start = 0;")
 	g.writeln("    if (end < 0) end = str_len;")
-	g.writeln("    if ((size_t)start >= str_len) return strdup(\"\");")
+	g.writeln("    if ((size_t)start >= str_len) return carv_strdup(\"\");")
 	g.writeln("    if ((size_t)end > str_len) end = str_len;")
-	g.writeln("    if (end <= start) return strdup(\"\");")
+	g.writeln("    if (end <= start) return carv_strdup(\"\");")
 	g.writeln("    size_t len = end - start;")
-	g.writeln("    char* result = (char*)malloc(len + 1);")
+	g.writeln("    char* result = (char*)carv_arena_alloc(len + 1);")
 	g.writeln("    memcpy(result, str + start, len);")
 	g.writeln("    result[len] = '\\0';")
 	g.writeln("    return result;")
@@ -250,45 +381,83 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("")
 
 	g.writeln("carv_string carv_int_to_string(carv_int val) {")
-	g.writeln("    char* buf = (char*)malloc(32);")
+	g.writeln("    char* buf = (char*)carv_arena_alloc(32);")
 	g.writeln("    snprintf(buf, 32, \"%lld\", val);")
 	g.writeln("    return buf;")
 	g.writeln("}")
 	g.writeln("")
 	g.writeln("carv_string carv_float_to_string(carv_float val) {")
-	g.writeln("    char* buf = (char*)malloc(64);")
+	g.writeln("    char* buf = (char*)carv_arena_alloc(64);")
 	g.writeln("    snprintf(buf, 64, \"%g\", val);")
 	g.writeln("    return buf;")
 	g.writeln("}")
 	g.writeln("")
 	g.writeln("carv_string carv_bool_to_string(carv_bool val) {")
-	g.writeln("    return strdup(val ? \"true\" : \"false\");")
+	g.writeln("    return carv_strdup(val ? \"true\" : \"false\");")
 	g.writeln("}")
 	g.writeln("")
 	g.writeln("carv_string carv_concat(carv_string a, carv_string b) {")
 	g.writeln("    size_t len_a = strlen(a);")
 	g.writeln("    size_t len_b = strlen(b);")
-	g.writeln("    char* result = (char*)malloc(len_a + len_b + 1);")
+	g.writeln("    char* result = (char*)carv_arena_alloc(len_a + len_b + 1);")
 	g.writeln("    memcpy(result, a, len_a);")
 	g.writeln("    memcpy(result + len_a, b, len_b + 1);")
 	g.writeln("    return result;")
 	g.writeln("}")
 	g.writeln("")
 
-	g.writeln("typedef struct { carv_bool is_ok; union { carv_int ok_int; carv_string ok_str; void* ok_ptr; } ok; union { carv_string err_str; carv_int err_code; } err; } carv_result;")
+	g.writeln("typedef enum { CARV_TYPE_INT, CARV_TYPE_FLOAT, CARV_TYPE_BOOL, CARV_TYPE_STRING } carv_type_tag;")
+	g.writeln("typedef struct { carv_bool is_ok; carv_type_tag ok_tag; carv_type_tag err_tag; union { carv_int ok_int; carv_float ok_float; carv_bool ok_bool; carv_string ok_str; void* ok_ptr; } ok; union { carv_string err_str; carv_int err_code; } err; } carv_result;")
 	g.writeln("")
-	g.writeln("carv_result carv_ok_int(carv_int val) { carv_result r; r.is_ok = true; r.ok.ok_int = val; return r; }")
-	g.writeln("carv_result carv_ok_str(carv_string val) { carv_result r; r.is_ok = true; r.ok.ok_str = val; return r; }")
-	g.writeln("carv_result carv_err_str(carv_string val) { carv_result r; r.is_ok = false; r.err.err_str = val; return r; }")
-	g.writeln("carv_result carv_err_code(carv_int val) { carv_result r; r.is_ok = false; r.err.err_code = val; return r; }")
+	g.writeln("carv_result carv_ok_int(carv_int val) { carv_result r; r.is_ok = true; r.ok_tag = CARV_TYPE_INT; r.ok.ok_int = val; return r; }")
+	g.writeln("carv_result carv_ok_float(carv_float val) { carv_result r; r.is_ok = true; r.ok_tag = CARV_TYPE_FLOAT; r.ok.ok_float = val; return r; }")
+	g.writeln("carv_result carv_ok_bool(carv_bool val) { carv_result r; r.is_ok = true; r.ok_tag = CARV_TYPE_BOOL; r.ok.ok_bool = val; return r; }")
+	g.writeln("carv_result carv_ok_str(carv_string val) { carv_result r; r.is_ok = true; r.ok_tag = CARV_TYPE_STRING; r.ok.ok_str = val; return r; }")
+	g.writeln("carv_result carv_err_str(carv_string val) { carv_result r; r.is_ok = false; r.err_tag = CARV_TYPE_STRING; r.err.err_str = val; return r; }")
+	g.writeln("carv_result carv_err_code(carv_int val) { carv_result r; r.is_ok = false; r.err_tag = CARV_TYPE_INT; r.err.err_code = val; return r; }")
 	g.writeln("")
 }
 
 func (g *CGenerator) generateFunctionDecl(fn *ast.FunctionStatement) {
-	retType := g.typeToC(fn.ReturnType)
+	retType := g.inferFunctionReturnType(fn)
 	params := g.paramsToC(fn.Parameters)
 	fnName := g.safeName(fn.Name.Value)
 	g.writeln(fmt.Sprintf("%s %s(%s);", retType, fnName, params))
+}
+
+func (g *CGenerator) inferFunctionReturnType(fn *ast.FunctionStatement) string {
+	if fn.ReturnType != nil {
+		return g.typeToC(fn.ReturnType)
+	}
+	if g.functionReturnsResult(fn.Body) {
+		return "carv_result"
+	}
+	retType := g.inferReturnTypeFromBody(fn.Body)
+	if retType != "" {
+		return retType
+	}
+	return "void"
+}
+
+func (g *CGenerator) functionReturnsResult(body *ast.BlockStatement) bool {
+	for _, stmt := range body.Statements {
+		if ret, ok := stmt.(*ast.ReturnStatement); ok && ret.ReturnValue != nil {
+			switch ret.ReturnValue.(type) {
+			case *ast.OkExpression, *ast.ErrExpression:
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (g *CGenerator) inferReturnTypeFromBody(body *ast.BlockStatement) string {
+	for _, stmt := range body.Statements {
+		if ret, ok := stmt.(*ast.ReturnStatement); ok && ret.ReturnValue != nil {
+			return g.inferExprType(ret.ReturnValue)
+		}
+	}
+	return ""
 }
 
 func (g *CGenerator) safeName(name string) string {
@@ -309,14 +478,23 @@ func (g *CGenerator) safeName(name string) string {
 }
 
 func (g *CGenerator) generateFunction(fn *ast.FunctionStatement) {
-	retType := g.typeToC(fn.ReturnType)
+	retType := g.inferFunctionReturnType(fn)
 	params := g.paramsToC(fn.Parameters)
 	fnName := g.safeName(fn.Name.Value)
 	g.writeln(fmt.Sprintf("%s %s(%s) {", retType, fnName, params))
 	g.indent++
 
+	for _, p := range fn.Parameters {
+		pType := g.typeToC(p.Type)
+		g.varTypes[p.Name.Value] = pType
+	}
+
 	for _, stmt := range fn.Body.Statements {
 		g.generateStatement(stmt)
+	}
+
+	for _, p := range fn.Parameters {
+		delete(g.varTypes, p.Name.Value)
 	}
 
 	if retType == "void" {
@@ -345,7 +523,7 @@ func (g *CGenerator) generateClassDecl(cls *ast.ClassStatement) {
 
 	g.writeln(fmt.Sprintf("%s* %s_new(void) {", className, className))
 	g.indent++
-	g.writeln(fmt.Sprintf("%s* self = (%s*)malloc(sizeof(%s));", className, className, className))
+	g.writeln(fmt.Sprintf("%s* self = (%s*)carv_arena_alloc(sizeof(%s));", className, className, className))
 	for _, field := range cls.Fields {
 		if field.Default != nil {
 			defaultVal := g.generateExpression(field.Default)
@@ -451,6 +629,13 @@ func (g *CGenerator) generateLetStatement(s *ast.LetStatement) {
 	value := g.generateExpression(s.Value)
 
 	g.varTypes[varName] = varType
+
+	if varType == "carv_result" {
+		okType := g.inferResultOkType(s.Value)
+		errType := g.inferResultErrType(s.Value)
+		g.varTypes[varName+"_result_ok"] = okType
+		g.varTypes[varName+"_result_err"] = errType
+	}
 
 	if arr, ok := s.Value.(*ast.ArrayLiteral); ok {
 		arrayType := g.getArrayType(g.inferArrayElemType(s.Value))
@@ -830,19 +1015,25 @@ func (g *CGenerator) generatePrintCall(e *ast.CallExpression) string {
 		argStr := g.generateExpression(arg)
 		argType := g.inferExprType(arg)
 
-		if _, ok := arg.(*ast.ArrayLiteral); ok {
-			parts = append(parts, fmt.Sprintf("carv_print_int_array(%s)", argStr))
+		if arr, ok := arg.(*ast.ArrayLiteral); ok {
+			if len(arr.Elements) > 0 {
+				elemType := g.inferExprType(arr.Elements[0])
+				parts = append(parts, g.generateArrayPrint(argStr, elemType))
+			} else {
+				parts = append(parts, fmt.Sprintf("carv_print_int_array(%s)", argStr))
+			}
 			continue
 		}
 
-		if ident, ok := arg.(*ast.Identifier); ok {
-			if strings.HasPrefix(argType, "carv_int_array") || g.isArrayIdent(ident.Value) {
-				parts = append(parts, fmt.Sprintf("carv_print_int_array(%s)", argStr))
-				continue
-			}
-		}
-
 		switch argType {
+		case "carv_int_array":
+			parts = append(parts, fmt.Sprintf("carv_print_int_array(%s)", argStr))
+		case "carv_float_array":
+			parts = append(parts, fmt.Sprintf("carv_print_float_array(%s)", argStr))
+		case "carv_string_array":
+			parts = append(parts, fmt.Sprintf("carv_print_string_array(%s)", argStr))
+		case "carv_bool_array":
+			parts = append(parts, fmt.Sprintf("carv_print_bool_array(%s)", argStr))
 		case "carv_int":
 			parts = append(parts, fmt.Sprintf("printf(\"%%lld\", %s)", argStr))
 		case "carv_float":
@@ -865,8 +1056,62 @@ func (g *CGenerator) isArrayIdent(name string) bool {
 	return ok
 }
 
+func (g *CGenerator) generateArrayPrint(argStr string, elemType string) string {
+	switch elemType {
+	case "carv_int":
+		return fmt.Sprintf("carv_print_int_array(%s)", argStr)
+	case "carv_float":
+		return fmt.Sprintf("carv_print_float_array(%s)", argStr)
+	case "carv_string":
+		return fmt.Sprintf("carv_print_string_array(%s)", argStr)
+	case "carv_bool":
+		return fmt.Sprintf("carv_print_bool_array(%s)", argStr)
+	default:
+		return fmt.Sprintf("carv_print_int_array(%s)", argStr)
+	}
+}
+
 func (g *CGenerator) generateIfExpression(e *ast.IfExpression) string {
-	return ""
+	cond := g.generateExpression(e.Condition)
+	tempName := fmt.Sprintf("__if_%d", g.tempCounter)
+	g.tempCounter++
+
+	ifType := g.inferIfExprType(e)
+
+	var consResult, altResult string
+	if len(e.Consequence.Statements) > 0 {
+		if last, ok := e.Consequence.Statements[len(e.Consequence.Statements)-1].(*ast.ExpressionStatement); ok {
+			consResult = g.generateExpression(last.Expression)
+		} else if ret, ok := e.Consequence.Statements[len(e.Consequence.Statements)-1].(*ast.ReturnStatement); ok && ret.ReturnValue != nil {
+			consResult = g.generateExpression(ret.ReturnValue)
+		}
+	}
+	if consResult == "" {
+		consResult = g.zeroValue(ifType)
+	}
+
+	if e.Alternative != nil && len(e.Alternative.Statements) > 0 {
+		if last, ok := e.Alternative.Statements[len(e.Alternative.Statements)-1].(*ast.ExpressionStatement); ok {
+			altResult = g.generateExpression(last.Expression)
+		} else if ret, ok := e.Alternative.Statements[len(e.Alternative.Statements)-1].(*ast.ReturnStatement); ok && ret.ReturnValue != nil {
+			altResult = g.generateExpression(ret.ReturnValue)
+		}
+	}
+	if altResult == "" {
+		altResult = g.zeroValue(ifType)
+	}
+
+	return fmt.Sprintf("({ %s %s; if (%s) { %s = %s; } else { %s = %s; } %s; })",
+		ifType, tempName, cond, tempName, consResult, tempName, altResult, tempName)
+}
+
+func (g *CGenerator) inferIfExprType(e *ast.IfExpression) string {
+	if len(e.Consequence.Statements) > 0 {
+		if last, ok := e.Consequence.Statements[len(e.Consequence.Statements)-1].(*ast.ExpressionStatement); ok {
+			return g.inferExprType(last.Expression)
+		}
+	}
+	return "carv_int"
 }
 
 func (g *CGenerator) generateMemberExpression(e *ast.MemberExpression) string {
@@ -1073,14 +1318,19 @@ func (g *CGenerator) inferExprType(expr ast.Expression) string {
 			return g.getArrayType(g.inferExprType(e.Elements[0]))
 		}
 		return "carv_int_array"
-	case *ast.OkExpression, *ast.ErrExpression, *ast.TryExpression:
+	case *ast.OkExpression, *ast.ErrExpression:
 		return "carv_result"
+	case *ast.TryExpression:
+		return g.inferResultOkType(e.Value)
 	}
 	return "carv_int"
 }
 
 func (g *CGenerator) inferCallType(e *ast.CallExpression) string {
 	if ident, ok := e.Function.(*ast.Identifier); ok {
+		if retType, exists := g.fnReturnTypes[ident.Value]; exists {
+			return retType
+		}
 		switch ident.Value {
 		case "read_file", "join", "trim", "substr":
 			return "carv_string"
@@ -1102,6 +1352,10 @@ func (g *CGenerator) generateOkExpression(e *ast.OkExpression) string {
 	switch valType {
 	case "carv_int":
 		return fmt.Sprintf("carv_ok_int(%s)", val)
+	case "carv_float":
+		return fmt.Sprintf("carv_ok_float(%s)", val)
+	case "carv_bool":
+		return fmt.Sprintf("carv_ok_bool(%s)", val)
 	case "carv_string":
 		return fmt.Sprintf("carv_ok_str(%s)", val)
 	default:
@@ -1127,14 +1381,56 @@ func (g *CGenerator) generateTryExpression(e *ast.TryExpression) string {
 	val := g.generateExpression(e.Value)
 	tempName := fmt.Sprintf("__try_%d", g.tempCounter)
 	g.tempCounter++
-	return fmt.Sprintf("({ carv_result %s = %s; if (!%s.is_ok) return %s; %s.ok.ok_int; })",
-		tempName, val, tempName, tempName, tempName)
+
+	okType := g.inferResultOkType(e.Value)
+	okField := g.okFieldForType(okType)
+
+	return fmt.Sprintf("({ carv_result %s = %s; if (!%s.is_ok) return %s; %s.ok.%s; })",
+		tempName, val, tempName, tempName, tempName, okField)
+}
+
+func (g *CGenerator) inferResultOkType(expr ast.Expression) string {
+	switch e := expr.(type) {
+	case *ast.OkExpression:
+		return g.inferExprType(e.Value)
+	case *ast.CallExpression:
+		if ident, ok := e.Function.(*ast.Identifier); ok {
+			if retType, exists := g.varTypes[ident.Value+"_result_ok"]; exists {
+				return retType
+			}
+		}
+	case *ast.Identifier:
+		if retType, exists := g.varTypes[e.Value+"_result_ok"]; exists {
+			return retType
+		}
+	}
+	return "carv_int"
+}
+
+func (g *CGenerator) okFieldForType(cType string) string {
+	switch cType {
+	case "carv_int":
+		return "ok_int"
+	case "carv_float":
+		return "ok_float"
+	case "carv_bool":
+		return "ok_bool"
+	case "carv_string":
+		return "ok_str"
+	default:
+		return "ok_int"
+	}
 }
 
 func (g *CGenerator) generateMatchExpression(e *ast.MatchExpression) string {
 	val := g.generateExpression(e.Value)
 	tempName := fmt.Sprintf("__match_%d", g.tempCounter)
 	g.tempCounter++
+
+	okType := g.inferResultOkType(e.Value)
+	okField := g.okFieldForType(okType)
+	errType := g.inferResultErrType(e.Value)
+	errField := g.errFieldForType(errType)
 
 	var result strings.Builder
 	result.WriteString(fmt.Sprintf("({ carv_result %s = %s; ", tempName, val))
@@ -1144,17 +1440,26 @@ func (g *CGenerator) generateMatchExpression(e *ast.MatchExpression) string {
 			result.WriteString(" else ")
 		}
 
+		var boundVar string
+		var boundType string
+
 		if ok, isOk := arm.Pattern.(*ast.OkExpression); isOk {
 			if ident, isIdent := ok.Value.(*ast.Identifier); isIdent {
-				result.WriteString(fmt.Sprintf("if (%s.is_ok) { carv_int %s = %s.ok.ok_int; ",
-					tempName, ident.Value, tempName))
+				boundVar = ident.Value
+				boundType = okType
+				g.varTypes[boundVar] = boundType
+				result.WriteString(fmt.Sprintf("if (%s.is_ok) { %s %s = %s.ok.%s; ",
+					tempName, okType, ident.Value, tempName, okField))
 			} else {
 				result.WriteString(fmt.Sprintf("if (%s.is_ok) { ", tempName))
 			}
 		} else if errExpr, isErr := arm.Pattern.(*ast.ErrExpression); isErr {
 			if ident, isIdent := errExpr.Value.(*ast.Identifier); isIdent {
-				result.WriteString(fmt.Sprintf("if (!%s.is_ok) { carv_string %s = %s.err.err_str; ",
-					tempName, ident.Value, tempName))
+				boundVar = ident.Value
+				boundType = errType
+				g.varTypes[boundVar] = boundType
+				result.WriteString(fmt.Sprintf("if (!%s.is_ok) { %s %s = %s.err.%s; ",
+					tempName, errType, ident.Value, tempName, errField))
 			} else {
 				result.WriteString(fmt.Sprintf("if (!%s.is_ok) { ", tempName))
 			}
@@ -1164,10 +1469,43 @@ func (g *CGenerator) generateMatchExpression(e *ast.MatchExpression) string {
 
 		bodyExpr := g.generateExpression(arm.Body)
 		result.WriteString(fmt.Sprintf("%s; } ", bodyExpr))
+
+		if boundVar != "" {
+			delete(g.varTypes, boundVar)
+		}
 	}
 
 	result.WriteString("; })")
 	return result.String()
+}
+
+func (g *CGenerator) inferResultErrType(expr ast.Expression) string {
+	switch e := expr.(type) {
+	case *ast.ErrExpression:
+		return g.inferExprType(e.Value)
+	case *ast.CallExpression:
+		if ident, ok := e.Function.(*ast.Identifier); ok {
+			if retType, exists := g.varTypes[ident.Value+"_result_err"]; exists {
+				return retType
+			}
+		}
+	case *ast.Identifier:
+		if retType, exists := g.varTypes[e.Value+"_result_err"]; exists {
+			return retType
+		}
+	}
+	return "carv_string"
+}
+
+func (g *CGenerator) errFieldForType(cType string) string {
+	switch cType {
+	case "carv_int":
+		return "err_code"
+	case "carv_string":
+		return "err_str"
+	default:
+		return "err_str"
+	}
 }
 
 func (g *CGenerator) escapeString(s string) string {
