@@ -469,11 +469,36 @@ func (c *Checker) checkCallExpression(e *ast.CallExpression) Type {
 		return Any
 	}
 
-	for _, arg := range e.Arguments {
-		c.checkExpression(arg)
+	isVariadic := c.isVariadicFunction(e)
+
+	if !isVariadic && len(e.Arguments) != len(ft.Params) {
+		line, col := e.Pos()
+		c.error(line, col, "function expects %d arguments, got %d", len(ft.Params), len(e.Arguments))
+		return ft.Return
+	}
+
+	for i, arg := range e.Arguments {
+		argType := c.checkExpression(arg)
+		if i < len(ft.Params) {
+			paramType := ft.Params[i]
+			if !paramType.Equals(Any) && !c.isAssignable(paramType, argType) {
+				line, col := arg.Pos()
+				c.error(line, col, "argument %d: cannot pass %s as %s", i+1, argType.String(), paramType.String())
+			}
+		}
 	}
 
 	return ft.Return
+}
+
+func (c *Checker) isVariadicFunction(e *ast.CallExpression) bool {
+	if ident, ok := e.Function.(*ast.Identifier); ok {
+		switch ident.Value {
+		case "print", "println", "exec", "exec_output", "substr", "exit", "panic":
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Checker) checkArrayLiteral(e *ast.ArrayLiteral) Type {
