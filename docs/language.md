@@ -35,6 +35,22 @@ y = 30;               // ok
 const PI = 3.14159;   // constant
 ```
 
+### Compound Assignment
+
+Mutable variables support compound assignment operators:
+
+```carv
+mut x = 10;
+x += 5;    // 15
+x -= 3;    // 12
+x *= 2;    // 24
+x /= 4;    // 6
+x %= 4;    // 2
+x &= 3;   // bitwise AND
+x |= 8;   // bitwise OR
+x ^= 5;   // bitwise XOR
+```
+
 ## Types
 
 Basic types: `int`, `float`, `string`, `bool`, `char`, `void`
@@ -134,9 +150,19 @@ for (let i = 0; i < 10; i = i + 1) {
     print(i);
 }
 
-// for-in
-for item in items {
+// for-in (arrays)
+for item in [1, 2, 3] {
     print(item);
+}
+
+// for-in (strings — iterates characters)
+for ch in "hello" {
+    print(ch);
+}
+
+// for-in (maps — iterates keys)
+for key in {"a": 1, "b": 2} {
+    print(key);
 }
 
 // while
@@ -273,7 +299,7 @@ fn calculate() -> Result {
 ## Built-in Functions
 
 ### General
-- `print(...)` - print to stdout
+- `print(...)` / `println(...)` - print to stdout
 - `len(x)` - length of string or array
 - `str(x)` - convert to string
 - `int(x)` - convert to int
@@ -295,11 +321,14 @@ fn calculate() -> Result {
 - `ends_with(str, suffix)` - check suffix
 - `replace(str, old, new)` - replace all occurrences
 - `index_of(str, substr)` - find index (-1 if not found)
-- `to_upper(str)` - uppercase
-- `to_lower(str)` - lowercase
+- `to_upper(str)` / `to_lower(str)` - case conversion
 - `ord(char)` - character to ASCII code
 - `chr(int)` - ASCII code to character
 - `char_at(str, idx)` - get character at index
+
+### Parsing
+- `parse_int(str)` - parse string as integer
+- `parse_float(str)` - parse string as float
 
 ### Maps
 - `keys(map)` - get all keys as array
@@ -308,12 +337,21 @@ fn calculate() -> Result {
 - `set(map, key, value)` - return new map with key set
 - `delete(map, key)` - return new map with key removed
 
-### Files
+### File I/O
 - `read_file(path)` - read file contents
 - `write_file(path, content)` - write to file
+- `append_file(path, content)` - append to file
 - `file_exists(path)` - check if file exists
+- `mkdir(path)` - create directory
 
-### Other
+### Process & Environment
+- `args()` - get CLI arguments
+- `exec(cmd, ...args)` - run command, return exit code
+- `exec_output(cmd, ...args)` - run command, return `Ok(stdout)` / `Err(stderr)`
+- `getenv(key)` - get environment variable
+- `setenv(key, value)` - set environment variable
+
+### Control Flow
 - `exit(code?)` - exit program
 - `panic(msg)` - crash with message
 
@@ -321,7 +359,8 @@ fn calculate() -> Result {
 
 - Semicolons are required at the end of statements
 - The language is statically typed but has decent inference
-- Maps, arrays, and strings are immutable (operations return new values)
+- Map and array builtins (`push`, `set`, `delete`) return new values (originals unchanged)
+- Mutable variables (`mut`) support direct mutation via index/field assignment
 - Error handling uses Result types instead of exceptions
 
 ---

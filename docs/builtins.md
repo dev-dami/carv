@@ -236,6 +236,66 @@ Get character at index.
 char_at("hello", 1)  // 'e'
 ```
 
+## Parsing
+
+### `parse_int(str) -> int`
+Parse a string as an integer.
+
+```carv
+parse_int("42")    // 42
+parse_int("-10")   // -10
+```
+
+### `parse_float(str) -> float`
+Parse a string as a float.
+
+```carv
+parse_float("3.14")   // 3.14
+parse_float("2.0")    // 2
+```
+
+## Process & Environment
+
+### `args() -> array`
+Get command-line arguments passed to the script.
+
+```carv
+let a = args();
+print(a);   // ["arg1", "arg2", ...]
+```
+
+### `exec(command, ...args) -> int`
+Run an external command. Returns the exit code.
+
+```carv
+let code = exec("echo", "hello");  // prints "hello", returns 0
+```
+
+### `exec_output(command, ...args) -> Result`
+Run an external command and capture output. Returns `Ok(stdout)` or `Err(stderr)`.
+
+```carv
+let result = exec_output("echo", "hello");
+match result {
+    Ok(out) => print(trim(out)),
+    Err(e) => print("failed: " + e),
+}
+```
+
+### `getenv(key) -> string`
+Get an environment variable. Returns empty string if not set.
+
+```carv
+let home = getenv("HOME");
+```
+
+### `setenv(key, value)`
+Set an environment variable.
+
+```carv
+setenv("MY_VAR", "hello");
+```
+
 ## File I/O
 
 ### `read_file(path) -> string`
@@ -252,6 +312,13 @@ Write string to file.
 write_file("out.txt", "hello");
 ```
 
+### `append_file(path, content)`
+Append string to file. Creates the file if it doesn't exist.
+
+```carv
+append_file("log.txt", "new line\n");
+```
+
 ### `file_exists(path) -> bool`
 Check if file exists.
 
@@ -259,6 +326,13 @@ Check if file exists.
 if file_exists("config.txt") {
     // ...
 }
+```
+
+### `mkdir(path)`
+Create a directory (and parent directories).
+
+```carv
+mkdir("build/output");
 ```
 
 ## Control Flow

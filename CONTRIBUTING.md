@@ -64,6 +64,7 @@ pkg/
   types/        # type checker
   eval/         # interpreter
   codegen/      # C code generator
+  module/       # module loader & carv.toml config
 examples/       # example programs
 docs/           # documentation
 ```
