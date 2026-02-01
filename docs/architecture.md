@@ -90,7 +90,7 @@ Key files:
 
 Generates C code from the AST. The generated C is not pretty but it works.
 
-Currently targets C99. The runtime is minimal - just some helper macros and a simple GC (eventually).
+Currently targets C99. The runtime includes an arena allocator and helper macros for strings, arrays, maps, and Result types.
 
 ### `pkg/module`
 
@@ -107,7 +107,7 @@ Supports:
 
 ### `cmd/carv`
 
-CLI entry point. Handles `run`, `build`, `emit-c`, `repl` commands.
+CLI entry point. Handles `run`, `build`, `emit-c`, `repl`, and `init` commands.
 
 ## Design Decisions
 

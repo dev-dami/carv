@@ -21,13 +21,16 @@ Carv compiles to C and runs natively. It has a tree-walking interpreter too for 
 Features that actually work:
 - Static typing with inference
 - Pipe operator (`|>`) - my favorite part and why not
+- `let` / `mut` / `const` with proper immutability enforcement
+- Compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`)
 - Classes with methods
 - Result types (`Ok`/`Err`) with pattern matching cause **RUST**
 - Hash maps
+- `for-in` loops over arrays, strings, and maps
 - **Module system** with `require` (Rust-inspired, package manager ready)
 - **String interpolation** with `f"hello {name}"`
 - Project config via `carv.toml`
-- Basic standard library
+- 40+ built-in functions (strings, files, process, environment, etc.)
 
 ---
 
@@ -91,6 +94,7 @@ Then:
 ```bash
 ./build/carv run file.carv      # interpret
 ./build/carv build file.carv    # compile to binary
+./build/carv emit-c file.carv   # emit generated C source
 ./build/carv init               # create new project with carv.toml
 ./build/carv repl               # mess around
 ```
