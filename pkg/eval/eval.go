@@ -20,7 +20,11 @@ func Eval(node ast.Node, env *Environment) Object {
 		if isError(val) {
 			return val
 		}
-		env.Set(node.Name.Value, val)
+		if node.Mutable {
+			env.Set(node.Name.Value, val)
+		} else {
+			env.SetImmutable(node.Name.Value, val)
+		}
 		return val
 
 	case *ast.ConstStatement:
@@ -28,7 +32,7 @@ func Eval(node ast.Node, env *Environment) Object {
 		if isError(val) {
 			return val
 		}
-		env.Set(node.Name.Value, val)
+		env.SetImmutable(node.Name.Value, val)
 		return val
 
 	case *ast.ReturnStatement:
@@ -510,6 +514,10 @@ func evalAssignExpression(node *ast.AssignExpression, env *Environment) Object {
 		return &Error{Message: "undefined variable: " + ident.Value}
 	}
 
+	if env.IsImmutable(ident.Value) {
+		return &Error{Message: "cannot assign to immutable variable: " + ident.Value, Line: node.Token.Line, Column: node.Token.Column}
+	}
+
 	var newVal Object
 	switch node.Operator {
 	case "=":
@@ -522,6 +530,14 @@ func evalAssignExpression(node *ast.AssignExpression, env *Environment) Object {
 		newVal = evalInfixExpression("*", existing, val)
 	case "/=":
 		newVal = evalInfixExpression("/", existing, val)
+	case "%=":
+		newVal = evalInfixExpression("%", existing, val)
+	case "&=":
+		newVal = evalInfixExpression("&", existing, val)
+	case "|=":
+		newVal = evalInfixExpression("|", existing, val)
+	case "^=":
+		newVal = evalInfixExpression("^", existing, val)
 	default:
 		return &Error{Message: "unknown assignment operator: " + node.Operator}
 	}
@@ -564,6 +580,14 @@ func evalMemberAssignment(node *ast.MemberExpression, operator string, val Objec
 		newVal = evalInfixExpression("*", existing, val)
 	case "/=":
 		newVal = evalInfixExpression("/", existing, val)
+	case "%=":
+		newVal = evalInfixExpression("%", existing, val)
+	case "&=":
+		newVal = evalInfixExpression("&", existing, val)
+	case "|=":
+		newVal = evalInfixExpression("|", existing, val)
+	case "^=":
+		newVal = evalInfixExpression("^", existing, val)
 	default:
 		return &Error{Message: "unknown assignment operator: " + operator}
 	}
@@ -609,6 +633,14 @@ func evalIndexAssignment(node *ast.IndexExpression, operator string, val Object,
 			newVal = evalInfixExpression("*", obj.Elements[idx.Value], val)
 		case "/=":
 			newVal = evalInfixExpression("/", obj.Elements[idx.Value], val)
+		case "%=":
+			newVal = evalInfixExpression("%", obj.Elements[idx.Value], val)
+		case "&=":
+			newVal = evalInfixExpression("&", obj.Elements[idx.Value], val)
+		case "|=":
+			newVal = evalInfixExpression("|", obj.Elements[idx.Value], val)
+		case "^=":
+			newVal = evalInfixExpression("^", obj.Elements[idx.Value], val)
 		default:
 			return &Error{Message: "unknown assignment operator: " + operator}
 		}
@@ -643,6 +675,14 @@ func evalIndexAssignment(node *ast.IndexExpression, operator string, val Object,
 				newVal = evalInfixExpression("*", existing.Value, val)
 			case "/=":
 				newVal = evalInfixExpression("/", existing.Value, val)
+			case "%=":
+				newVal = evalInfixExpression("%", existing.Value, val)
+			case "&=":
+				newVal = evalInfixExpression("&", existing.Value, val)
+			case "|=":
+				newVal = evalInfixExpression("|", existing.Value, val)
+			case "^=":
+				newVal = evalInfixExpression("^", existing.Value, val)
 			default:
 				return &Error{Message: "unknown assignment operator: " + operator}
 			}
@@ -723,25 +763,50 @@ func evalForInStatement(node *ast.ForInStatement, env *Environment) Object {
 		return iterable
 	}
 
-	arr, ok := iterable.(*Array)
-	if !ok {
-		return &Error{Message: "for-in requires array"}
-	}
-
 	loopEnv := NewEnclosedEnvironment(env)
 
-	for _, elem := range arr.Elements {
-		loopEnv.Set(node.Value.Value, elem)
-
-		result := Eval(node.Body, loopEnv)
-		if result != nil {
-			if result.Type() == RETURN_VALUE_OBJ || result.Type() == ERROR_OBJ {
-				return result
-			}
-			if result.Type() == BREAK_OBJ {
-				break
+	switch obj := iterable.(type) {
+	case *Array:
+		for _, elem := range obj.Elements {
+			loopEnv.Set(node.Value.Value, elem)
+			result := Eval(node.Body, loopEnv)
+			if result != nil {
+				if result.Type() == RETURN_VALUE_OBJ || result.Type() == ERROR_OBJ {
+					return result
+				}
+				if result.Type() == BREAK_OBJ {
+					break
+				}
 			}
 		}
+	case *String:
+		for _, ch := range obj.Value {
+			loopEnv.Set(node.Value.Value, &Char{Value: ch})
+			result := Eval(node.Body, loopEnv)
+			if result != nil {
+				if result.Type() == RETURN_VALUE_OBJ || result.Type() == ERROR_OBJ {
+					return result
+				}
+				if result.Type() == BREAK_OBJ {
+					break
+				}
+			}
+		}
+	case *Map:
+		for _, pair := range obj.Pairs {
+			loopEnv.Set(node.Value.Value, pair.Key)
+			result := Eval(node.Body, loopEnv)
+			if result != nil {
+				if result.Type() == RETURN_VALUE_OBJ || result.Type() == ERROR_OBJ {
+					return result
+				}
+				if result.Type() == BREAK_OBJ {
+					break
+				}
+			}
+		}
+	default:
+		return &Error{Message: "for-in requires array, string, or map, got " + string(iterable.Type())}
 	}
 
 	return NIL
