@@ -286,6 +286,266 @@ func TestMatchExpression(t *testing.T) {
 	}
 }
 
+func TestElseIfExpression(t *testing.T) {
+	input := `if x > 10 {
+	print("big");
+} else if x > 5 {
+	print("medium");
+} else {
+	print("small");
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+
+	stmt := program.Statements[0].(*ast.ExpressionStatement)
+	ifExp, ok := stmt.Expression.(*ast.IfExpression)
+	if !ok {
+		t.Fatalf("expression not *ast.IfExpression. got=%T", stmt.Expression)
+	}
+
+	if ifExp.Alternative == nil {
+		t.Fatal("expected alternative block for else-if")
+	}
+
+	if len(ifExp.Alternative.Statements) != 1 {
+		t.Fatalf("expected 1 statement in alternative, got %d", len(ifExp.Alternative.Statements))
+	}
+
+	altStmt, ok := ifExp.Alternative.Statements[0].(*ast.ExpressionStatement)
+	if !ok {
+		t.Fatalf("alternative statement not ExpressionStatement. got=%T", ifExp.Alternative.Statements[0])
+	}
+	nestedIf, ok := altStmt.Expression.(*ast.IfExpression)
+	if !ok {
+		t.Fatalf("expected nested IfExpression in else-if. got=%T", altStmt.Expression)
+	}
+	if nestedIf.Alternative == nil {
+		t.Fatal("expected else block in nested if")
+	}
+}
+
+func TestChainedElseIf(t *testing.T) {
+	input := `if x > 20 {
+	1;
+} else if x > 10 {
+	2;
+} else if x > 5 {
+	3;
+} else {
+	4;
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+}
+
+func TestCompoundAssignmentParsing(t *testing.T) {
+	tests := []struct {
+		input    string
+		operator string
+	}{
+		{"x += 1;", "+="},
+		{"x -= 1;", "-="},
+		{"x *= 2;", "*="},
+		{"x /= 2;", "/="},
+		{"x %= 3;", "%="},
+		{"x &= 3;", "&="},
+		{"x |= 4;", "|="},
+		{"x ^= 5;", "^="},
+	}
+
+	for _, tt := range tests {
+		l := lexer.New(tt.input)
+		p := New(l)
+		program := p.ParseProgram()
+		checkParserErrors(t, p)
+
+		stmt := program.Statements[0].(*ast.ExpressionStatement)
+		assign, ok := stmt.Expression.(*ast.AssignExpression)
+		if !ok {
+			t.Fatalf("expression not *ast.AssignExpression for %s. got=%T", tt.operator, stmt.Expression)
+		}
+		if assign.Operator != tt.operator {
+			t.Fatalf("expected operator %s, got %s", tt.operator, assign.Operator)
+		}
+	}
+}
+
+func TestTypeAsCallExpression(t *testing.T) {
+	tests := []struct {
+		input    string
+		funcName string
+	}{
+		{"int(3.14);", "int"},
+		{"float(42);", "float"},
+		{"bool(1);", "bool"},
+		{"string(42);", "string"},
+		{"char(65);", "char"},
+	}
+
+	for _, tt := range tests {
+		l := lexer.New(tt.input)
+		p := New(l)
+		program := p.ParseProgram()
+		checkParserErrors(t, p)
+
+		stmt := program.Statements[0].(*ast.ExpressionStatement)
+		call, ok := stmt.Expression.(*ast.CallExpression)
+		if !ok {
+			t.Fatalf("expected CallExpression for %s, got %T", tt.funcName, stmt.Expression)
+		}
+		ident, ok := call.Function.(*ast.Identifier)
+		if !ok {
+			t.Fatalf("expected Identifier for function, got %T", call.Function)
+		}
+		if ident.Value != tt.funcName {
+			t.Fatalf("expected function name %s, got %s", tt.funcName, ident.Value)
+		}
+	}
+}
+
+func TestForLoopInitMutable(t *testing.T) {
+	input := `for (let i = 0; i < 10; i = i + 1) { print(i); }`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	forStmt := program.Statements[0].(*ast.ForStatement)
+	letStmt, ok := forStmt.Init.(*ast.LetStatement)
+	if !ok {
+		t.Fatalf("expected LetStatement in for init, got %T", forStmt.Init)
+	}
+	if !letStmt.Mutable {
+		t.Fatal("for loop init 'let' should be forced mutable")
+	}
+}
+
+func TestForInStatement(t *testing.T) {
+	input := `for x in arr { print(x); }`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	forIn, ok := program.Statements[0].(*ast.ForInStatement)
+	if !ok {
+		t.Fatalf("expected ForInStatement. got=%T", program.Statements[0])
+	}
+	if forIn.Value.Value != "x" {
+		t.Fatalf("expected iterator 'x', got %s", forIn.Value.Value)
+	}
+}
+
+func TestInfiniteForLoop(t *testing.T) {
+	input := `for { break; }`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	_, ok := program.Statements[0].(*ast.LoopStatement)
+	if !ok {
+		t.Fatalf("expected LoopStatement. got=%T", program.Statements[0])
+	}
+}
+
+func TestConstStatement(t *testing.T) {
+	input := `const PI = 3.14;`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	constStmt, ok := program.Statements[0].(*ast.ConstStatement)
+	if !ok {
+		t.Fatalf("expected ConstStatement, got %T", program.Statements[0])
+	}
+	if constStmt.Name.Value != "PI" {
+		t.Fatalf("expected name 'PI', got %s", constStmt.Name.Value)
+	}
+}
+
+func TestInterpolatedString(t *testing.T) {
+	input := `f"hello {name}";`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	stmt := program.Statements[0].(*ast.ExpressionStatement)
+	interp, ok := stmt.Expression.(*ast.InterpolatedString)
+	if !ok {
+		t.Fatalf("expected InterpolatedString, got %T", stmt.Expression)
+	}
+	if len(interp.Parts) != 2 {
+		t.Fatalf("expected 2 parts, got %d", len(interp.Parts))
+	}
+}
+
+func TestMapLiteral(t *testing.T) {
+	input := `{"a": 1, "b": 2};`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	stmt := program.Statements[0].(*ast.ExpressionStatement)
+	mapLit, ok := stmt.Expression.(*ast.MapLiteral)
+	if !ok {
+		t.Fatalf("expected MapLiteral, got %T", stmt.Expression)
+	}
+	if len(mapLit.Pairs) != 2 {
+		t.Fatalf("expected 2 pairs, got %d", len(mapLit.Pairs))
+	}
+}
+
+func TestClassStatement(t *testing.T) {
+	input := `class Point {
+	x: int = 0
+	y: int = 0
+	fn getX() -> int { return self.x; }
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	classStmt, ok := program.Statements[0].(*ast.ClassStatement)
+	if !ok {
+		t.Fatalf("expected ClassStatement, got %T", program.Statements[0])
+	}
+	if classStmt.Name.Value != "Point" {
+		t.Fatalf("expected class name 'Point', got %s", classStmt.Name.Value)
+	}
+	if len(classStmt.Fields) != 2 {
+		t.Fatalf("expected 2 fields, got %d", len(classStmt.Fields))
+	}
+	if len(classStmt.Methods) != 1 {
+		t.Fatalf("expected 1 method, got %d", len(classStmt.Methods))
+	}
+}
+
 func checkParserErrors(t *testing.T, p *Parser) {
 	errors := p.Errors()
 	if len(errors) == 0 {

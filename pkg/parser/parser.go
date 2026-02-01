@@ -33,33 +33,37 @@ const (
 )
 
 var precedences = map[lexer.TokenType]precedence{
-	lexer.TOKEN_PIPE:      PIPE,
-	lexer.TOKEN_PIPE_BACK: PIPE,
-	lexer.TOKEN_ASSIGN:    ASSIGN,
-	lexer.TOKEN_PLUS_EQ:   ASSIGN,
-	lexer.TOKEN_MINUS_EQ:  ASSIGN,
-	lexer.TOKEN_STAR_EQ:   ASSIGN,
-	lexer.TOKEN_SLASH_EQ:  ASSIGN,
-	lexer.TOKEN_OR:        OR,
-	lexer.TOKEN_AND:       AND,
-	lexer.TOKEN_EQ:        EQUALS,
-	lexer.TOKEN_NE:        EQUALS,
-	lexer.TOKEN_LT:        LESSGREATER,
-	lexer.TOKEN_LE:        LESSGREATER,
-	lexer.TOKEN_GT:        LESSGREATER,
-	lexer.TOKEN_GE:        LESSGREATER,
-	lexer.TOKEN_VBAR:      BITOR,
-	lexer.TOKEN_CARET:     BITXOR,
-	lexer.TOKEN_AMPERSAND: BITAND,
-	lexer.TOKEN_PLUS:      SUM,
-	lexer.TOKEN_MINUS:     SUM,
-	lexer.TOKEN_STAR:      PRODUCT,
-	lexer.TOKEN_SLASH:     PRODUCT,
-	lexer.TOKEN_PERCENT:   PRODUCT,
-	lexer.TOKEN_LPAREN:    CALL,
-	lexer.TOKEN_LBRACKET:  INDEX,
-	lexer.TOKEN_DOT:       INDEX,
-	lexer.TOKEN_QUESTION:  POSTFIX,
+	lexer.TOKEN_PIPE:         PIPE,
+	lexer.TOKEN_PIPE_BACK:    PIPE,
+	lexer.TOKEN_ASSIGN:       ASSIGN,
+	lexer.TOKEN_PLUS_EQ:      ASSIGN,
+	lexer.TOKEN_MINUS_EQ:     ASSIGN,
+	lexer.TOKEN_STAR_EQ:      ASSIGN,
+	lexer.TOKEN_SLASH_EQ:     ASSIGN,
+	lexer.TOKEN_PERCENT_EQ:   ASSIGN,
+	lexer.TOKEN_AMPERSAND_EQ: ASSIGN,
+	lexer.TOKEN_VBAR_EQ:      ASSIGN,
+	lexer.TOKEN_CARET_EQ:     ASSIGN,
+	lexer.TOKEN_OR:           OR,
+	lexer.TOKEN_AND:          AND,
+	lexer.TOKEN_EQ:           EQUALS,
+	lexer.TOKEN_NE:           EQUALS,
+	lexer.TOKEN_LT:           LESSGREATER,
+	lexer.TOKEN_LE:           LESSGREATER,
+	lexer.TOKEN_GT:           LESSGREATER,
+	lexer.TOKEN_GE:           LESSGREATER,
+	lexer.TOKEN_VBAR:         BITOR,
+	lexer.TOKEN_CARET:        BITXOR,
+	lexer.TOKEN_AMPERSAND:    BITAND,
+	lexer.TOKEN_PLUS:         SUM,
+	lexer.TOKEN_MINUS:        SUM,
+	lexer.TOKEN_STAR:         PRODUCT,
+	lexer.TOKEN_SLASH:        PRODUCT,
+	lexer.TOKEN_PERCENT:      PRODUCT,
+	lexer.TOKEN_LPAREN:       CALL,
+	lexer.TOKEN_LBRACKET:     INDEX,
+	lexer.TOKEN_DOT:          INDEX,
+	lexer.TOKEN_QUESTION:     POSTFIX,
 }
 
 type Parser struct {
@@ -102,6 +106,11 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(lexer.TOKEN_SELF, p.parseSelfExpression)
 	p.registerPrefix(lexer.TOKEN_LBRACE, p.parseMapLiteral)
 	p.registerPrefix(lexer.TOKEN_INTERP_STRING, p.parseInterpolatedString)
+	p.registerPrefix(lexer.TOKEN_INT_TYPE, p.parseTypeAsIdentifier)
+	p.registerPrefix(lexer.TOKEN_FLOAT_TYPE, p.parseTypeAsIdentifier)
+	p.registerPrefix(lexer.TOKEN_BOOL_TYPE, p.parseTypeAsIdentifier)
+	p.registerPrefix(lexer.TOKEN_STRING_TYPE, p.parseTypeAsIdentifier)
+	p.registerPrefix(lexer.TOKEN_CHAR_TYPE, p.parseTypeAsIdentifier)
 
 	p.infixParseFns = make(map[lexer.TokenType]infixParseFn)
 	p.registerInfix(lexer.TOKEN_PLUS, p.parseInfixExpression)
@@ -130,6 +139,10 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerInfix(lexer.TOKEN_MINUS_EQ, p.parseAssignExpression)
 	p.registerInfix(lexer.TOKEN_STAR_EQ, p.parseAssignExpression)
 	p.registerInfix(lexer.TOKEN_SLASH_EQ, p.parseAssignExpression)
+	p.registerInfix(lexer.TOKEN_PERCENT_EQ, p.parseAssignExpression)
+	p.registerInfix(lexer.TOKEN_AMPERSAND_EQ, p.parseAssignExpression)
+	p.registerInfix(lexer.TOKEN_VBAR_EQ, p.parseAssignExpression)
+	p.registerInfix(lexer.TOKEN_CARET_EQ, p.parseAssignExpression)
 	p.registerInfix(lexer.TOKEN_QUESTION, p.parseTryExpression)
 
 	p.nextToken()
@@ -541,7 +554,11 @@ func (p *Parser) parseCStyleFor(token lexer.Token) *ast.ForStatement {
 
 	if !p.curTokenIs(lexer.TOKEN_SEMI) {
 		if p.curTokenIs(lexer.TOKEN_LET) || p.curTokenIs(lexer.TOKEN_MUT) {
-			stmt.Init = p.parseLetStatement()
+			letStmt := p.parseLetStatement()
+			if letStmt != nil {
+				letStmt.Mutable = true
+			}
+			stmt.Init = letStmt
 		} else {
 			stmt.Init = p.parseExpressionStatement()
 		}
@@ -728,6 +745,12 @@ func (p *Parser) parseIdentifier() ast.Expression {
 	return &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 }
 
+func (p *Parser) parseTypeAsIdentifier() ast.Expression {
+	tok := p.curToken
+	tok.Type = lexer.TOKEN_IDENT
+	return &ast.Identifier{Token: tok, Value: tok.Literal}
+}
+
 func (p *Parser) parseIntegerLiteral() ast.Expression {
 	lit := &ast.IntegerLiteral{Token: p.curToken}
 	value, err := strconv.ParseInt(p.curToken.Literal, 0, 64)
@@ -910,10 +933,24 @@ func (p *Parser) parseIfExpression() ast.Expression {
 
 	if p.peekTokenIs(lexer.TOKEN_ELSE) {
 		p.nextToken()
-		if !p.expectPeek(lexer.TOKEN_LBRACE) {
-			return nil
+
+		// Support "else if" chains
+		if p.peekTokenIs(lexer.TOKEN_IF) {
+			p.nextToken()
+			nestedIf := p.parseIfExpression()
+			if nestedIf == nil {
+				return nil
+			}
+			expr.Alternative = &ast.BlockStatement{
+				Token:      p.curToken,
+				Statements: []ast.Statement{&ast.ExpressionStatement{Token: p.curToken, Expression: nestedIf}},
+			}
+		} else {
+			if !p.expectPeek(lexer.TOKEN_LBRACE) {
+				return nil
+			}
+			expr.Alternative = p.parseBlockStatement()
 		}
-		expr.Alternative = p.parseBlockStatement()
 	}
 
 	return expr
