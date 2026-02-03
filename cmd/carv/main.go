@@ -181,6 +181,11 @@ func runFile(filename string, programArgs []string) {
 		os.Exit(1)
 	}
 
+	// Print ownership warnings (non-fatal for interpreter mode)
+	for _, msg := range checker.Warnings() {
+		fmt.Fprintln(os.Stderr, msg)
+	}
+
 	env := eval.NewEnvironment()
 	result := eval.Eval(program, env)
 
@@ -261,6 +266,13 @@ func emitC(filename string) {
 		os.Exit(1)
 	}
 
+	if len(checker.Warnings()) > 0 {
+		for _, msg := range checker.Warnings() {
+			fmt.Fprintln(os.Stderr, msg)
+		}
+		os.Exit(1)
+	}
+
 	gen := codegen.NewCGenerator()
 	gen.SetTypeInfo(checker.TypeInfo())
 	cCode := gen.Generate(program)
@@ -288,6 +300,13 @@ func buildFile(filename string) {
 	checker := types.NewChecker()
 	if !checker.Check(program) {
 		for _, msg := range checker.Errors() {
+			fmt.Fprintln(os.Stderr, msg)
+		}
+		os.Exit(1)
+	}
+
+	if len(checker.Warnings()) > 0 {
+		for _, msg := range checker.Warnings() {
 			fmt.Fprintln(os.Stderr, msg)
 		}
 		os.Exit(1)
