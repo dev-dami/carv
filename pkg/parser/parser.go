@@ -110,6 +110,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(lexer.TOKEN_SELF, p.parseSelfExpression)
 	p.registerPrefix(lexer.TOKEN_LBRACE, p.parseMapLiteral)
 	p.registerPrefix(lexer.TOKEN_INTERP_STRING, p.parseInterpolatedString)
+	p.registerPrefix(lexer.TOKEN_AWAIT, p.parseAwaitExpression)
 	p.registerPrefix(lexer.TOKEN_INT_TYPE, p.parseTypeAsIdentifier)
 	p.registerPrefix(lexer.TOKEN_FLOAT_TYPE, p.parseTypeAsIdentifier)
 	p.registerPrefix(lexer.TOKEN_BOOL_TYPE, p.parseTypeAsIdentifier)
@@ -242,6 +243,17 @@ func (p *Parser) parseStatement() ast.Statement {
 		stmt = p.parseReturnStatement()
 	case lexer.TOKEN_FN:
 		stmt = p.parseFunctionStatement()
+	case lexer.TOKEN_ASYNC:
+		p.nextToken()
+		if !p.curTokenIs(lexer.TOKEN_FN) {
+			p.peekError(lexer.TOKEN_FN)
+			return nil
+		}
+		fnStmt := p.parseFunctionStatement()
+		if fnStmt != nil {
+			fnStmt.Async = true
+		}
+		stmt = fnStmt
 	case lexer.TOKEN_CLASS:
 		stmt = p.parseClassStatement()
 	case lexer.TOKEN_INTERFACE:
@@ -289,6 +301,18 @@ func (p *Parser) parsePublicStatement() ast.Statement {
 		stmt := p.parseFunctionStatement()
 		if stmt != nil {
 			stmt.Public = true
+		}
+		return stmt
+	case lexer.TOKEN_ASYNC:
+		p.nextToken()
+		if !p.curTokenIs(lexer.TOKEN_FN) {
+			p.peekError(lexer.TOKEN_FN)
+			return nil
+		}
+		stmt := p.parseFunctionStatement()
+		if stmt != nil {
+			stmt.Public = true
+			stmt.Async = true
 		}
 		return stmt
 	case lexer.TOKEN_CLASS:
@@ -1086,6 +1110,13 @@ func (p *Parser) parseSpawnExpression() ast.Expression {
 	}
 	exp.Body = p.parseBlockStatement()
 	return exp
+}
+
+func (p *Parser) parseAwaitExpression() ast.Expression {
+	expr := &ast.AwaitExpression{Token: p.curToken}
+	p.nextToken()
+	expr.Value = p.parseExpression(PREFIX)
+	return expr
 }
 
 func (p *Parser) parseNewExpression() ast.Expression {

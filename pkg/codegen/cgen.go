@@ -30,19 +30,45 @@ type implInfo struct {
 	methods   []*ast.MethodDecl
 }
 
+type capturedVar struct {
+	Name  string
+	CType string
+}
+
 type CGenerator struct {
-	output        strings.Builder
-	indent        int
-	tempCounter   int
-	arrayLengths  map[string]int
-	scope         *cgenScope
-	fnReturnTypes map[string]string
-	typeInfo      map[ast.Expression]types.Type
-	preamble      []string
-	inFunction    bool
-	funcRetType   string
-	interfaces    map[string]*interfaceInfo
-	implList      []*implInfo
+	output          strings.Builder
+	indent          int
+	tempCounter     int
+	arrayLengths    map[string]int
+	scope           *cgenScope
+	fnReturnTypes   map[string]string
+	typeInfo        map[ast.Expression]types.Type
+	preamble        []string
+	inFunction      bool
+	funcRetType     string
+	interfaces      map[string]*interfaceInfo
+	implList        []*implInfo
+	closureCounter  int
+	closureDefs     []string
+	captureMap      map[string]string // varName -> "__env->varName" during closure function generation
+	lastClosureType string
+	hasAsync        bool
+	asyncFns        map[string]*asyncFnInfo
+	inAsyncFn       bool
+	asyncFnName     string
+	asyncStateID    int
+}
+
+type asyncFnInfo struct {
+	Name       string
+	Params     []paramInfo
+	Locals     []paramInfo
+	ReturnType string
+}
+
+type paramInfo struct {
+	Name  string
+	CType string
 }
 
 func NewCGenerator() *CGenerator {
@@ -50,9 +76,16 @@ func NewCGenerator() *CGenerator {
 		arrayLengths:  make(map[string]int),
 		fnReturnTypes: make(map[string]string),
 		interfaces:    make(map[string]*interfaceInfo),
+		asyncFns:      make(map[string]*asyncFnInfo),
 	}
 	g.scope = newScope(nil)
 	return g
+}
+
+func (g *CGenerator) nextClosureID() int {
+	id := g.closureCounter
+	g.closureCounter++
+	return id
 }
 
 func (g *CGenerator) SetTypeInfo(info map[ast.Expression]types.Type) {
@@ -127,6 +160,9 @@ func checkerTypeToCString(t types.Type) string {
 		return iface.Name + "_ref"
 	}
 	if _, ok := t.(*types.FunctionType); ok {
+		return "void*"
+	}
+	if _, ok := t.(*types.FutureType); ok {
 		return "void*"
 	}
 	return ""
@@ -213,6 +249,42 @@ func (g *CGenerator) collectFunctionReturnTypes(program *ast.Program) {
 	}
 }
 
+func (g *CGenerator) collectAsyncFunctions(program *ast.Program) {
+	for _, stmt := range program.Statements {
+		if fn, ok := stmt.(*ast.FunctionStatement); ok && fn.Async {
+			g.hasAsync = true
+			info := &asyncFnInfo{
+				Name:       fn.Name.Value,
+				ReturnType: g.inferFunctionReturnType(fn),
+			}
+			for _, p := range fn.Parameters {
+				info.Params = append(info.Params, paramInfo{
+					Name:  p.Name.Value,
+					CType: g.typeToC(p.Type),
+				})
+			}
+			g.collectAsyncLocals(fn.Body, info)
+			g.asyncFns[fn.Name.Value] = info
+		}
+	}
+}
+
+func (g *CGenerator) collectAsyncLocals(body *ast.BlockStatement, info *asyncFnInfo) {
+	if body == nil {
+		return
+	}
+	for _, stmt := range body.Statements {
+		switch s := stmt.(type) {
+		case *ast.LetStatement:
+			varType := g.inferType(s.Value)
+			info.Locals = append(info.Locals, paramInfo{
+				Name:  s.Name.Value,
+				CType: varType,
+			})
+		}
+	}
+}
+
 func (g *CGenerator) inferResultPayloadTypes(body *ast.BlockStatement) (okType, errType string) {
 	okType = "carv_int"
 	errType = "carv_string"
@@ -232,6 +304,7 @@ func (g *CGenerator) inferResultPayloadTypes(body *ast.BlockStatement) (okType, 
 func (g *CGenerator) Generate(program *ast.Program) string {
 	g.collectFunctionReturnTypes(program)
 	g.collectInterfacesAndImpls(program)
+	g.collectAsyncFunctions(program)
 	g.emitRuntime()
 
 	for _, stmt := range program.Statements {
@@ -273,16 +346,36 @@ func (g *CGenerator) Generate(program *ast.Program) string {
 	g.generateImplMethods(program)
 	g.generateImplWrappers()
 
+	preMainOutput := g.output.String()
+	g.output.Reset()
+
+	var asyncMain *ast.FunctionStatement
+	for _, stmt := range program.Statements {
+		if fn, ok := stmt.(*ast.FunctionStatement); ok && fn.Name.Value == "main" && fn.Async {
+			asyncMain = fn
+			break
+		}
+	}
+
 	g.writeln("")
 	g.writeln("int main(void) {")
 	g.indent++
 
-	for _, stmt := range program.Statements {
-		switch stmt.(type) {
-		case *ast.FunctionStatement, *ast.ClassStatement, *ast.InterfaceStatement, *ast.ImplStatement:
-			continue
-		default:
-			g.generateStatement(stmt)
+	if asyncMain != nil {
+		g.writeln("carv_loop loop;")
+		g.writeln("carv_loop_init(&loop);")
+		g.writeln("carv_main_frame* mf = carv_main();")
+		g.writeln("carv_task main_task = { .poll = carv_main_poll, .drop = NULL, .frame = mf };")
+		g.writeln("carv_loop_add_task(&loop, &main_task);")
+		g.writeln("carv_loop_run(&loop);")
+	} else {
+		for _, stmt := range program.Statements {
+			switch stmt.(type) {
+			case *ast.FunctionStatement, *ast.ClassStatement, *ast.InterfaceStatement, *ast.ImplStatement:
+				continue
+			default:
+				g.generateStatement(stmt)
+			}
 		}
 	}
 
@@ -290,6 +383,15 @@ func (g *CGenerator) Generate(program *ast.Program) string {
 	g.writeln("return 0;")
 	g.indent--
 	g.writeln("}")
+
+	mainBody := g.output.String()
+	g.output.Reset()
+
+	g.output.WriteString(preMainOutput)
+	for _, def := range g.closureDefs {
+		g.writeln(def)
+	}
+	g.output.WriteString(mainBody)
 
 	return g.output.String()
 }
@@ -623,12 +725,67 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("carv_result carv_err_str(carv_string val) { carv_result r; r.is_ok = false; r.err_tag = CARV_TYPE_STRING; r.err.err_str = val; return r; }")
 	g.writeln("carv_result carv_err_code(carv_int val) { carv_result r; r.is_ok = false; r.err_tag = CARV_TYPE_INT; r.err.err_code = val; return r; }")
 	g.writeln("")
+
+	if g.hasAsync {
+		g.emitEventLoopRuntime()
+	}
+}
+
+func (g *CGenerator) emitEventLoopRuntime() {
+	g.writeln("typedef struct carv_loop carv_loop;")
+	g.writeln("typedef struct carv_task {")
+	g.writeln("    bool (*poll)(void*, carv_loop*);")
+	g.writeln("    void (*drop)(void*);")
+	g.writeln("    void* frame;")
+	g.writeln("} carv_task;")
+	g.writeln("")
+	g.writeln("struct carv_loop {")
+	g.writeln("    carv_task** ready;")
+	g.writeln("    int ready_count;")
+	g.writeln("    int ready_cap;")
+	g.writeln("};")
+	g.writeln("")
+	g.writeln("static void carv_loop_init(carv_loop* loop) {")
+	g.writeln("    loop->ready = NULL;")
+	g.writeln("    loop->ready_count = 0;")
+	g.writeln("    loop->ready_cap = 0;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static void carv_loop_add_task(carv_loop* loop, carv_task* task) {")
+	g.writeln("    if (loop->ready_count >= loop->ready_cap) {")
+	g.writeln("        int newcap = loop->ready_cap == 0 ? 4 : loop->ready_cap * 2;")
+	g.writeln("        loop->ready = (carv_task**)realloc(loop->ready, newcap * sizeof(carv_task*));")
+	g.writeln("        loop->ready_cap = newcap;")
+	g.writeln("    }")
+	g.writeln("    loop->ready[loop->ready_count++] = task;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static void carv_loop_run(carv_loop* loop) {")
+	g.writeln("    while (loop->ready_count > 0) {")
+	g.writeln("        for (int i = 0; i < loop->ready_count; ) {")
+	g.writeln("            carv_task* t = loop->ready[i];")
+	g.writeln("            if (t->poll(t->frame, loop)) {")
+	g.writeln("                if (t->drop) t->drop(t->frame);")
+	g.writeln("                loop->ready[i] = loop->ready[--loop->ready_count];")
+	g.writeln("            } else {")
+	g.writeln("                i++;")
+	g.writeln("            }")
+	g.writeln("        }")
+	g.writeln("    }")
+	g.writeln("    if (loop->ready) free(loop->ready);")
+	g.writeln("}")
+	g.writeln("")
 }
 
 func (g *CGenerator) generateFunctionDecl(fn *ast.FunctionStatement) {
-	retType := g.inferFunctionReturnType(fn)
-	params := g.paramsToC(fn.Parameters)
 	fnName := g.safeName(fn.Name.Value)
+	params := g.paramsToC(fn.Parameters)
+	if fn.Async {
+		frameName := fnName + "_frame"
+		g.writeln(fmt.Sprintf("%s* %s(%s);", frameName, fnName, params))
+		return
+	}
+	retType := g.inferFunctionReturnType(fn)
 	g.writeln(fmt.Sprintf("%s %s(%s);", retType, fnName, params))
 }
 
@@ -684,7 +841,198 @@ func (g *CGenerator) safeName(name string) string {
 	return name
 }
 
+func (g *CGenerator) generateAsyncFunction(fn *ast.FunctionStatement) {
+	fnName := g.safeName(fn.Name.Value)
+	info := g.asyncFns[fn.Name.Value]
+	retType := info.ReturnType
+	frameName := fnName + "_frame"
+	pollName := fnName + "_poll"
+
+	var frameDef strings.Builder
+	frameDef.WriteString("typedef struct {\n    int __state;\n")
+	for _, p := range info.Params {
+		frameDef.WriteString(fmt.Sprintf("    %s %s;\n", p.CType, p.Name))
+	}
+	for _, l := range info.Locals {
+		frameDef.WriteString(fmt.Sprintf("    %s %s;\n", l.CType, l.Name))
+	}
+	if retType != "void" {
+		frameDef.WriteString(fmt.Sprintf("    %s __result;\n", retType))
+	}
+	frameDef.WriteString("    void* __sub_future;\n")
+	frameDef.WriteString(fmt.Sprintf("} %s;\n", frameName))
+	g.closureDefs = append(g.closureDefs, frameDef.String())
+
+	var pollFn strings.Builder
+	pollFn.WriteString(fmt.Sprintf("static bool %s(void* __raw_frame, carv_loop* __loop) {\n", pollName))
+	pollFn.WriteString(fmt.Sprintf("    %s* f = (%s*)__raw_frame;\n", frameName, frameName))
+	pollFn.WriteString("    switch (f->__state) {\n")
+	pollFn.WriteString("    case 0:\n")
+
+	oldOutput := g.output
+	oldIndent := g.indent
+	oldInFunction := g.inFunction
+	oldFuncRetType := g.funcRetType
+
+	g.output = strings.Builder{}
+	g.indent = 2
+	g.inFunction = true
+	g.funcRetType = retType
+	g.inAsyncFn = true
+	g.asyncFnName = fnName
+	g.asyncStateID = 0
+	g.enterScope()
+
+	for _, p := range fn.Parameters {
+		pType := g.typeToC(p.Type)
+		g.declareVar(p.Name.Value, pType, false, false)
+	}
+	for _, l := range info.Locals {
+		g.declareVar(l.Name, l.CType, true, false)
+	}
+
+	for _, stmt := range fn.Body.Statements {
+		g.generateAsyncStatement(stmt)
+	}
+
+	if retType != "void" {
+		g.writeln("return true;")
+	} else {
+		g.writeln("return true;")
+	}
+
+	pollFn.WriteString(g.output.String())
+	pollFn.WriteString("    }\n    return true;\n}\n")
+
+	g.exitScope()
+	g.inAsyncFn = false
+
+	g.closureDefs = append(g.closureDefs, pollFn.String())
+
+	g.output = oldOutput
+	g.indent = oldIndent
+	g.inFunction = oldInFunction
+	g.funcRetType = oldFuncRetType
+
+	frameType := frameName + "*"
+	g.writeln(fmt.Sprintf("%s %s(%s) {", frameType, fnName, g.paramsToC(fn.Parameters)))
+	g.indent++
+	g.writeln(fmt.Sprintf("%s* f = (%s*)carv_arena_alloc(sizeof(%s));", frameName, frameName, frameName))
+	g.writeln("f->__state = 0;")
+	for _, p := range fn.Parameters {
+		pName := p.Name.Value
+		g.writeln(fmt.Sprintf("f->%s = %s;", pName, pName))
+	}
+	g.writeln("return f;")
+	g.indent--
+	g.writeln("}")
+	g.writeln("")
+}
+
+func (g *CGenerator) generateAsyncStatement(stmt ast.Statement) {
+	switch s := stmt.(type) {
+	case *ast.LetStatement:
+		value := g.generateAsyncExpression(s.Value)
+		g.flushPreamble()
+		g.writeln(fmt.Sprintf("f->%s = %s;", s.Name.Value, value))
+	case *ast.ReturnStatement:
+		if s.ReturnValue != nil {
+			value := g.generateAsyncExpression(s.ReturnValue)
+			g.flushPreamble()
+			g.writeln(fmt.Sprintf("f->__result = %s;", value))
+		}
+		g.writeln("return true;")
+	case *ast.ExpressionStatement:
+		if ifExpr, ok := s.Expression.(*ast.IfExpression); ok {
+			g.generateAsyncIfStatement(ifExpr)
+		} else {
+			expr := g.generateAsyncExpression(s.Expression)
+			g.flushPreamble()
+			if expr != "" {
+				g.writeln(expr + ";")
+			}
+		}
+	default:
+		g.generateStatement(stmt)
+	}
+}
+
+func (g *CGenerator) generateAsyncIfStatement(e *ast.IfExpression) {
+	cond := g.generateAsyncExpression(e.Condition)
+	g.flushPreamble()
+	g.writeln(fmt.Sprintf("if (%s) {", cond))
+	g.indent++
+	for _, stmt := range e.Consequence.Statements {
+		g.generateAsyncStatement(stmt)
+	}
+	g.indent--
+	if e.Alternative != nil {
+		g.writeln("} else {")
+		g.indent++
+		for _, stmt := range e.Alternative.Statements {
+			g.generateAsyncStatement(stmt)
+		}
+		g.indent--
+	}
+	g.writeln("}")
+}
+
+func (g *CGenerator) generateAsyncExpression(expr ast.Expression) string {
+	switch e := expr.(type) {
+	case *ast.Identifier:
+		if g.inAsyncFn {
+			if info := g.asyncFns[g.asyncFnName]; info != nil {
+				for _, p := range info.Params {
+					if p.Name == e.Value {
+						return fmt.Sprintf("f->%s", e.Value)
+					}
+				}
+				for _, l := range info.Locals {
+					if l.Name == e.Value {
+						return fmt.Sprintf("f->%s", e.Value)
+					}
+				}
+			}
+		}
+		return g.generateExpression(expr)
+	case *ast.AwaitExpression:
+		return g.generateAwaitExpression(e)
+	default:
+		return g.generateExpression(expr)
+	}
+}
+
+func (g *CGenerator) generateAwaitExpression(e *ast.AwaitExpression) string {
+	subFuture := g.generateAsyncExpression(e.Value)
+	g.flushPreamble()
+
+	g.asyncStateID++
+	nextState := g.asyncStateID
+
+	g.writeln(fmt.Sprintf("f->__sub_future = %s;", subFuture))
+	g.writeln(fmt.Sprintf("f->__state = %d;", nextState))
+	g.writeln("return false;")
+	g.writeln(fmt.Sprintf("case %d:", nextState))
+
+	if call, ok := e.Value.(*ast.CallExpression); ok {
+		if ident, ok := call.Function.(*ast.Identifier); ok {
+			subFnName := g.safeName(ident.Value)
+			pollFn := subFnName + "_poll"
+			frameTy := subFnName + "_frame"
+			g.writeln(fmt.Sprintf("if (!%s(f->__sub_future, __loop)) return false;", pollFn))
+			return fmt.Sprintf("((%s*)f->__sub_future)->__result", frameTy)
+		}
+	}
+
+	return "0"
+}
+
 func (g *CGenerator) generateFunction(fn *ast.FunctionStatement) {
+	if fn.Async {
+		g.generateAsyncFunction(fn)
+		return
+	}
+
 	retType := g.inferFunctionReturnType(fn)
 	params := g.paramsToC(fn.Parameters)
 	fnName := g.safeName(fn.Name.Value)
@@ -719,6 +1067,219 @@ func (g *CGenerator) generateFunction(fn *ast.FunctionStatement) {
 	g.indent--
 	g.writeln("}")
 	g.writeln("")
+}
+
+func (g *CGenerator) analyzeCaptured(fn *ast.FunctionLiteral) []capturedVar {
+	paramSet := make(map[string]bool)
+	for _, p := range fn.Parameters {
+		paramSet[p.Name.Value] = true
+	}
+
+	seen := make(map[string]bool)
+	var captures []capturedVar
+	g.walkForCaptures(fn.Body, paramSet, seen, &captures)
+	return captures
+}
+
+func (g *CGenerator) walkForCaptures(node ast.Node, params map[string]bool, seen map[string]bool, captures *[]capturedVar) {
+	if node == nil {
+		return
+	}
+	switch n := node.(type) {
+	case *ast.Identifier:
+		name := n.Value
+		if params[name] || seen[name] {
+			return
+		}
+		if v := g.lookupVar(name); v != nil {
+			seen[name] = true
+			*captures = append(*captures, capturedVar{Name: name, CType: v.CType})
+		}
+	case *ast.BlockStatement:
+		for _, stmt := range n.Statements {
+			g.walkForCaptures(stmt, params, seen, captures)
+		}
+	case *ast.LetStatement:
+		g.walkForCaptures(n.Value, params, seen, captures)
+	case *ast.ConstStatement:
+		g.walkForCaptures(n.Value, params, seen, captures)
+	case *ast.ReturnStatement:
+		if n.ReturnValue != nil {
+			g.walkForCaptures(n.ReturnValue, params, seen, captures)
+		}
+	case *ast.ExpressionStatement:
+		g.walkForCaptures(n.Expression, params, seen, captures)
+	case *ast.ForStatement:
+		g.walkForCaptures(n.Init, params, seen, captures)
+		g.walkForCaptures(n.Condition, params, seen, captures)
+		g.walkForCaptures(n.Post, params, seen, captures)
+		g.walkForCaptures(n.Body, params, seen, captures)
+	case *ast.ForInStatement:
+		g.walkForCaptures(n.Iterable, params, seen, captures)
+		g.walkForCaptures(n.Body, params, seen, captures)
+	case *ast.WhileStatement:
+		g.walkForCaptures(n.Condition, params, seen, captures)
+		g.walkForCaptures(n.Body, params, seen, captures)
+	case *ast.InfixExpression:
+		g.walkForCaptures(n.Left, params, seen, captures)
+		g.walkForCaptures(n.Right, params, seen, captures)
+	case *ast.PrefixExpression:
+		g.walkForCaptures(n.Right, params, seen, captures)
+	case *ast.CallExpression:
+		g.walkForCaptures(n.Function, params, seen, captures)
+		for _, arg := range n.Arguments {
+			g.walkForCaptures(arg, params, seen, captures)
+		}
+	case *ast.MemberExpression:
+		g.walkForCaptures(n.Object, params, seen, captures)
+	case *ast.IndexExpression:
+		g.walkForCaptures(n.Left, params, seen, captures)
+		g.walkForCaptures(n.Index, params, seen, captures)
+	case *ast.AssignExpression:
+		g.walkForCaptures(n.Left, params, seen, captures)
+		g.walkForCaptures(n.Right, params, seen, captures)
+	case *ast.IfExpression:
+		g.walkForCaptures(n.Condition, params, seen, captures)
+		g.walkForCaptures(n.Consequence, params, seen, captures)
+		g.walkForCaptures(n.Alternative, params, seen, captures)
+	case *ast.PipeExpression:
+		g.walkForCaptures(n.Left, params, seen, captures)
+		g.walkForCaptures(n.Right, params, seen, captures)
+	case *ast.ArrayLiteral:
+		for _, elem := range n.Elements {
+			g.walkForCaptures(elem, params, seen, captures)
+		}
+	case *ast.BorrowExpression:
+		g.walkForCaptures(n.Value, params, seen, captures)
+	case *ast.DerefExpression:
+		g.walkForCaptures(n.Value, params, seen, captures)
+	case *ast.FunctionLiteral:
+		// Don't descend into nested closures
+	}
+}
+
+func (g *CGenerator) generateClosureExpression(fn *ast.FunctionLiteral) string {
+	id := g.nextClosureID()
+	captures := g.analyzeCaptured(fn)
+
+	envName := fmt.Sprintf("__closure_%d_env", id)
+	fnName := fmt.Sprintf("__closure_%d_fn", id)
+	closureType := fmt.Sprintf("__closure_%d", id)
+
+	retType := g.closureReturnType(fn)
+	paramTypes := g.closureParamTypes(fn)
+
+	// Emit env struct
+	var envDef strings.Builder
+	envDef.WriteString("typedef struct { ")
+	for _, c := range captures {
+		envDef.WriteString(fmt.Sprintf("%s %s; ", c.CType, c.Name))
+	}
+	envDef.WriteString(fmt.Sprintf("} %s;", envName))
+	g.closureDefs = append(g.closureDefs, envDef.String())
+
+	// Emit fn_ptr typedef (fat pointer)
+	var fnPtrSig strings.Builder
+	fnPtrSig.WriteString("void*")
+	for _, pt := range paramTypes {
+		fnPtrSig.WriteString(", " + pt)
+	}
+	closureTypeDef := fmt.Sprintf("typedef struct { void* env; %s (*fn_ptr)(%s); } %s;",
+		retType, fnPtrSig.String(), closureType)
+	g.closureDefs = append(g.closureDefs, closureTypeDef)
+
+	// Emit lambda-lifted function
+	var liftedFn strings.Builder
+	liftedFn.WriteString(fmt.Sprintf("static %s %s(%s* __env", retType, fnName, envName))
+	for _, p := range fn.Parameters {
+		pType := g.typeToC(p.Type)
+		liftedFn.WriteString(fmt.Sprintf(", %s %s", pType, p.Name.Value))
+	}
+	liftedFn.WriteString(") {\n")
+
+	oldOutput := g.output
+	oldIndent := g.indent
+	oldInFunction := g.inFunction
+	oldFuncRetType := g.funcRetType
+	oldCaptureMap := g.captureMap
+
+	g.output = strings.Builder{}
+	g.indent = 1
+	g.inFunction = true
+	g.funcRetType = retType
+	g.enterScope()
+
+	g.captureMap = make(map[string]string)
+	for _, c := range captures {
+		g.captureMap[c.Name] = fmt.Sprintf("__env->%s", c.Name)
+	}
+	for _, p := range fn.Parameters {
+		pType := g.typeToC(p.Type)
+		g.declareVar(p.Name.Value, pType, p.Mutable, false)
+	}
+
+	if retType != "void" {
+		g.writeln(fmt.Sprintf("%s __carv_retval = %s;", retType, g.zeroValue(retType)))
+	}
+
+	for _, stmt := range fn.Body.Statements {
+		g.generateStatement(stmt)
+	}
+
+	g.writeln("__carv_exit:;")
+	g.emitScopeDrops()
+	if retType != "void" {
+		g.writeln("return __carv_retval;")
+	}
+
+	g.exitScope()
+	g.captureMap = oldCaptureMap
+
+	liftedFn.WriteString(g.output.String())
+	liftedFn.WriteString("}\n")
+	g.closureDefs = append(g.closureDefs, liftedFn.String())
+
+	g.output = oldOutput
+	g.indent = oldIndent
+	g.inFunction = oldInFunction
+	g.funcRetType = oldFuncRetType
+
+	// At call site: allocate env, populate, build closure struct
+	envVar := fmt.Sprintf("__env_%d", id)
+	clVar := fmt.Sprintf("__cl_%d", id)
+
+	g.writeln(fmt.Sprintf("%s* %s = (%s*)carv_arena_alloc(sizeof(%s));", envName, envVar, envName, envName))
+	for _, c := range captures {
+		if g.isMoveType(c.CType) {
+			g.writeln(fmt.Sprintf("%s->%s = carv_string_move(&%s);", envVar, c.Name, c.Name))
+		} else {
+			g.writeln(fmt.Sprintf("%s->%s = %s;", envVar, c.Name, g.safeName(c.Name)))
+		}
+	}
+	g.writeln(fmt.Sprintf("%s %s = { .env = %s, .fn_ptr = %s };", closureType, clVar, envVar, fnName))
+	g.declareVar(clVar, closureType, false, false)
+	g.lastClosureType = closureType
+
+	return clVar
+}
+
+func (g *CGenerator) closureReturnType(fn *ast.FunctionLiteral) string {
+	if fn.ReturnType != nil {
+		return g.typeToC(fn.ReturnType)
+	}
+	return "void"
+}
+
+func (g *CGenerator) closureParamTypes(fn *ast.FunctionLiteral) []string {
+	var pts []string
+	for _, p := range fn.Parameters {
+		pts = append(pts, g.typeToC(p.Type))
+	}
+	return pts
+}
+
+func (g *CGenerator) isMoveType(ctype string) bool {
+	return ctype == "carv_string" || strings.HasSuffix(ctype, "_array") || strings.HasSuffix(ctype, "*")
 }
 
 func (g *CGenerator) generateClassDecl(cls *ast.ClassStatement) {
@@ -774,13 +1335,19 @@ func (g *CGenerator) generateClassMethodDecls(cls *ast.ClassStatement) {
 	className := cls.Name.Value
 	for _, method := range cls.Methods {
 		retType := g.typeToC(method.ReturnType)
-		params := g.methodParamsToC(className, method.Parameters)
+		params := g.methodParamsToC(className, method.Receiver, method.Parameters)
 		g.writeln(fmt.Sprintf("%s %s_%s(%s);", retType, className, method.Name.Value, params))
 	}
 }
 
-func (g *CGenerator) methodParamsToC(className string, params []*ast.Parameter) string {
-	parts := []string{fmt.Sprintf("%s* self", className)}
+func (g *CGenerator) methodParamsToC(className string, recv ast.ReceiverKind, params []*ast.Parameter) string {
+	parts := []string{}
+	switch recv {
+	case ast.RecvRef:
+		parts = append(parts, fmt.Sprintf("const %s* self", className))
+	case ast.RecvMutRef, ast.RecvValue:
+		parts = append(parts, fmt.Sprintf("%s* self", className))
+	}
 	for _, p := range params {
 		pType := g.typeToC(p.Type)
 		parts = append(parts, fmt.Sprintf("%s %s", pType, p.Name.Value))
@@ -792,7 +1359,7 @@ func (g *CGenerator) generateClassMethods(cls *ast.ClassStatement) {
 	className := cls.Name.Value
 	for _, method := range cls.Methods {
 		retType := g.typeToC(method.ReturnType)
-		params := g.methodParamsToC(className, method.Parameters)
+		params := g.methodParamsToC(className, method.Receiver, method.Parameters)
 		g.writeln(fmt.Sprintf("%s %s_%s(%s) {", retType, className, method.Name.Value, params))
 		g.indent++
 		g.enterScope()
@@ -854,8 +1421,13 @@ func (g *CGenerator) generateStatement(stmt ast.Statement) {
 func (g *CGenerator) generateLetStatement(s *ast.LetStatement) {
 	varType := g.inferType(s.Value)
 	varName := s.Name.Value
+	g.lastClosureType = ""
 	value := g.generateExpression(s.Value)
 	g.flushPreamble()
+
+	if g.lastClosureType != "" {
+		varType = g.lastClosureType
+	}
 
 	if arr, ok := s.Value.(*ast.ArrayLiteral); ok {
 		varType = g.getArrayType(g.inferArrayElemType(s.Value))
@@ -1049,6 +1621,11 @@ func (g *CGenerator) generateExpression(expr ast.Expression) string {
 	case *ast.NilLiteral:
 		return "NULL"
 	case *ast.Identifier:
+		if g.captureMap != nil {
+			if mapped, ok := g.captureMap[e.Value]; ok {
+				return mapped
+			}
+		}
 		return g.safeName(e.Value)
 	case *ast.ArrayLiteral:
 		return g.generateArrayLiteral(e)
@@ -1088,6 +1665,8 @@ func (g *CGenerator) generateExpression(expr ast.Expression) string {
 		return "(*" + inner + ")"
 	case *ast.CastExpression:
 		return g.generateCastExpression(e)
+	case *ast.FunctionLiteral:
+		return g.generateClosureExpression(e)
 	}
 	return ""
 }
@@ -1120,12 +1699,22 @@ func (g *CGenerator) generatePipeExpression(e *ast.PipeExpression) string {
 		if fnName == "print" || fnName == "println" {
 			return g.generatePrintExpr(left, leftType)
 		}
+		if varType := g.getVarType(right.Value); strings.HasPrefix(varType, "__closure_") {
+			return fmt.Sprintf("%s.fn_ptr(%s.env, %s)", fnName, fnName, left)
+		}
 		return fmt.Sprintf("%s(%s)", fnName, left)
 	case *ast.CallExpression:
 		if ident, ok := right.Function.(*ast.Identifier); ok {
 			fnName := g.safeName(ident.Value)
 			if fnName == "print" || fnName == "println" {
 				return g.generatePrintExpr(left, leftType)
+			}
+			if varType := g.getVarType(ident.Value); strings.HasPrefix(varType, "__closure_") {
+				args := []string{fnName + ".env", left}
+				for _, arg := range right.Arguments {
+					args = append(args, g.generateExpression(arg))
+				}
+				return fmt.Sprintf("%s.fn_ptr(%s)", fnName, strings.Join(args, ", "))
 			}
 			args := []string{left}
 			for _, arg := range right.Arguments {
@@ -1252,6 +1841,18 @@ func (g *CGenerator) generateCallExpression(e *ast.CallExpression) string {
 		return fmt.Sprintf("carv_substr(%s, %s, %s)", str, start, end)
 	}
 
+	if ident, ok := e.Function.(*ast.Identifier); ok {
+		if varType := g.getVarType(ident.Value); strings.HasPrefix(varType, "__closure_") {
+			clName := g.safeName(ident.Value)
+			var callArgs []string
+			callArgs = append(callArgs, clName+".env")
+			for _, arg := range e.Arguments {
+				callArgs = append(callArgs, g.generateExpression(arg))
+			}
+			return fmt.Sprintf("%s.fn_ptr(%s)", clName, strings.Join(callArgs, ", "))
+		}
+	}
+
 	var args []string
 	for _, arg := range e.Arguments {
 		args = append(args, g.generateExpression(arg))
@@ -1373,11 +1974,6 @@ func (g *CGenerator) generatePrintCall(e *ast.CallExpression) string {
 
 	parts = append(parts, "printf(\"\\n\")")
 	return "(" + strings.Join(parts, ", ") + ")"
-}
-
-func (g *CGenerator) isArrayIdent(name string) bool {
-	_, ok := g.arrayLengths[name]
-	return ok
 }
 
 func (g *CGenerator) generateArrayPrint(argStr string, elemType string) string {
@@ -1682,6 +2278,15 @@ func (g *CGenerator) inferExprType(expr ast.Expression) string {
 		return inner
 	case *ast.CastExpression:
 		return g.typeToC(e.Type)
+	case *ast.AwaitExpression:
+		if call, ok := e.Value.(*ast.CallExpression); ok {
+			if ident, ok := call.Function.(*ast.Identifier); ok {
+				if info, exists := g.asyncFns[ident.Value]; exists {
+					return info.ReturnType
+				}
+			}
+		}
+		return "void*"
 	}
 	return "carv_int"
 }
@@ -1894,7 +2499,7 @@ func (g *CGenerator) collectInterfacesAndImpls(program *ast.Program) {
 
 func (g *CGenerator) generateInterfaceTypedefs() {
 	for _, info := range g.interfaces {
-		g.writeln(fmt.Sprintf("typedef struct {"))
+		g.writeln("typedef struct {")
 		g.indent++
 		for _, sig := range info.methods {
 			retType := g.methodSigReturnType(sig)
@@ -1904,14 +2509,14 @@ func (g *CGenerator) generateInterfaceTypedefs() {
 		g.indent--
 		g.writeln(fmt.Sprintf("} %s_vtable;", info.name))
 		g.writeln("")
-		g.writeln(fmt.Sprintf("typedef struct {"))
+		g.writeln("typedef struct {")
 		g.indent++
 		g.writeln("const void* data;")
 		g.writeln(fmt.Sprintf("const %s_vtable* vt;", info.name))
 		g.indent--
 		g.writeln(fmt.Sprintf("} %s_ref;", info.name))
 		g.writeln("")
-		g.writeln(fmt.Sprintf("typedef struct {"))
+		g.writeln("typedef struct {")
 		g.indent++
 		g.writeln("void* data;")
 		g.writeln(fmt.Sprintf("const %s_vtable* vt;", info.name))
@@ -1929,7 +2534,13 @@ func (g *CGenerator) methodSigReturnType(sig *ast.MethodSignature) string {
 }
 
 func (g *CGenerator) vtableMethodParams(sig *ast.MethodSignature) string {
-	parts := []string{"const void* self"}
+	parts := []string{}
+	switch sig.Receiver {
+	case ast.RecvRef:
+		parts = append(parts, "const void* self")
+	case ast.RecvMutRef, ast.RecvValue:
+		parts = append(parts, "void* self")
+	}
 	for _, p := range sig.Parameters {
 		pType := g.typeToC(p.Type)
 		parts = append(parts, fmt.Sprintf("%s %s", pType, p.Name.Value))
@@ -1941,7 +2552,7 @@ func (g *CGenerator) generateImplMethodDecls() {
 	for _, impl := range g.implList {
 		for _, method := range impl.methods {
 			retType := g.typeToC(method.ReturnType)
-			params := g.methodParamsToC(impl.typeName, method.Parameters)
+			params := g.methodParamsToC(impl.typeName, method.Receiver, method.Parameters)
 			g.writeln(fmt.Sprintf("%s %s_%s(%s);", retType, impl.typeName, method.Name.Value, params))
 		}
 	}
@@ -1951,7 +2562,7 @@ func (g *CGenerator) generateImplMethods(program *ast.Program) {
 	for _, impl := range g.implList {
 		for _, method := range impl.methods {
 			retType := g.typeToC(method.ReturnType)
-			params := g.methodParamsToC(impl.typeName, method.Parameters)
+			params := g.methodParamsToC(impl.typeName, method.Receiver, method.Parameters)
 			g.writeln(fmt.Sprintf("%s %s_%s(%s) {", retType, impl.typeName, method.Name.Value, params))
 			g.indent++
 			g.enterScope()
@@ -2002,7 +2613,12 @@ func (g *CGenerator) generateImplWrappers() {
 			g.writeln(fmt.Sprintf("static %s %s(%s) {", retType, wrapperName, wrapperParams))
 			g.indent++
 
-			g.writeln(fmt.Sprintf("%s* p = (%s*)self;", impl.typeName, impl.typeName))
+			switch sig.Receiver {
+			case ast.RecvRef:
+				g.writeln(fmt.Sprintf("const %s* p = (const %s*)self;", impl.typeName, impl.typeName))
+			default:
+				g.writeln(fmt.Sprintf("%s* p = (%s*)self;", impl.typeName, impl.typeName))
+			}
 
 			var argParts []string
 			argParts = append(argParts, "p")

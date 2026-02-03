@@ -120,6 +120,7 @@ type FunctionStatement struct {
 	ReturnType TypeExpr
 	Body       *BlockStatement
 	Public     bool
+	Async      bool
 }
 
 func (fs *FunctionStatement) statementNode()       {}
@@ -167,6 +168,7 @@ type MethodDecl struct {
 	Body       *BlockStatement
 	Public     bool
 	Static     bool
+	Async      bool
 }
 
 type InterfaceStatement struct {

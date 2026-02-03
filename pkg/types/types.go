@@ -144,6 +144,18 @@ func (r *RefType) Equals(other Type) bool {
 	return false
 }
 
+type FutureType struct {
+	Inner Type
+}
+
+func (f *FutureType) String() string { return "Future<" + f.Inner.String() + ">" }
+func (f *FutureType) Equals(other Type) bool {
+	if o, ok := other.(*FutureType); ok {
+		return f.Inner.Equals(o.Inner)
+	}
+	return false
+}
+
 type ModuleType struct {
 	Name    string
 	Exports map[string]Type
@@ -207,7 +219,7 @@ func Category(t Type) TypeCategory {
 		return CopyType // Any is treated as copy for backward compat
 	}
 	switch t.(type) {
-	case *ArrayType, *MapType, *ClassType:
+	case *ArrayType, *MapType, *ClassType, *FutureType:
 		return MoveType
 	case *RefType:
 		return CopyType

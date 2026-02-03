@@ -1,0 +1,41 @@
+// Async/Await Syntax Preview
+// NOTE: Async functions compile to C with state machine codegen,
+// but the runtime event loop is still being developed.
+
+// This file demonstrates the async syntax that Carv supports.
+// For now, we show regular function equivalents.
+
+fn fetch_data(id: int) -> int {
+    return id * 10;
+}
+
+fn compute(x: int, y: int) -> int {
+    let a = fetch_data(x);
+    let b = fetch_data(y);
+    return a + b;
+}
+
+fn process_all() -> int {
+    let result = compute(5, 3);
+    return result;
+}
+
+// Demonstrate the synchronous versions
+println("Async/Await syntax is supported in Carv:");
+println("  async fn fetch() -> int { ... }");
+println("  let result = await fetch();");
+println("");
+
+let result = process_all();
+println(f"process_all() = {result}");
+
+// What async enables (conceptually):
+// - Non-blocking I/O operations
+// - Concurrent task execution
+// - State machine transformation for suspension points
+
+println("");
+println("Async transforms functions into state machines:");
+println("  state 0: start execution");
+println("  state N: resume after await");
+println("  final: return result");

@@ -27,13 +27,15 @@ type BorrowInfo struct {
 }
 
 type Checker struct {
-	errors    []string
-	warnings  []string
-	ownership map[string]*VarOwnership
-	borrows   map[string]*BorrowInfo
-	scope     *Scope
-	nodeTypes map[ast.Expression]Type
-	impls     map[string]map[string]bool
+	errors         []string
+	warnings       []string
+	ownership      map[string]*VarOwnership
+	borrows        map[string]*BorrowInfo
+	scope          *Scope
+	nodeTypes      map[ast.Expression]Type
+	impls          map[string]map[string]bool
+	ifaceReceivers map[string]map[string]ast.ReceiverKind
+	inAsyncFn      bool
 }
 
 type Scope struct {
@@ -61,13 +63,14 @@ func (s *Scope) Lookup(name string) (Type, bool) {
 
 func NewChecker() *Checker {
 	c := &Checker{
-		errors:    []string{},
-		warnings:  []string{},
-		ownership: make(map[string]*VarOwnership),
-		borrows:   make(map[string]*BorrowInfo),
-		scope:     NewScope(nil),
-		nodeTypes: make(map[ast.Expression]Type),
-		impls:     make(map[string]map[string]bool),
+		errors:         []string{},
+		warnings:       []string{},
+		ownership:      make(map[string]*VarOwnership),
+		borrows:        make(map[string]*BorrowInfo),
+		scope:          NewScope(nil),
+		nodeTypes:      make(map[ast.Expression]Type),
+		impls:          make(map[string]map[string]bool),
+		ifaceReceivers: make(map[string]map[string]ast.ReceiverKind),
 	}
 	c.defineBuiltins()
 	return c
@@ -308,13 +311,20 @@ func (c *Checker) checkFunctionStatement(s *ast.FunctionStatement) {
 		retType = c.resolveTypeExpr(s.ReturnType)
 	}
 
-	fnType := &FunctionType{Params: paramTypes, Return: retType}
+	fnRetType := retType
+	if s.Async {
+		fnRetType = &FutureType{Inner: retType}
+	}
+
+	fnType := &FunctionType{Params: paramTypes, Return: fnRetType}
 	c.scope.Define(s.Name.Value, fnType)
 
 	prevScope := c.scope
 	prevOwnership := c.pushOwnership()
 	prevBorrows := c.pushBorrows()
+	prevAsync := c.inAsyncFn
 	c.scope = NewScope(prevScope)
+	c.inAsyncFn = s.Async
 
 	for i, p := range s.Parameters {
 		c.scope.Define(p.Name.Value, paramTypes[i])
@@ -323,6 +333,7 @@ func (c *Checker) checkFunctionStatement(s *ast.FunctionStatement) {
 
 	c.checkBlockStatement(s.Body)
 	c.scope = prevScope
+	c.inAsyncFn = prevAsync
 	c.popOwnership(prevOwnership)
 	c.popBorrows(prevBorrows)
 }
@@ -336,11 +347,9 @@ func (c *Checker) checkReturnStatement(s *ast.ReturnStatement) {
 				c.markMoved(ident.Value, line, "return")
 			}
 		}
-		if retType != nil {
-			if _, isRef := retType.(*RefType); isRef {
-				line, col := s.ReturnValue.Pos()
-				c.warning(line, col, "reference cannot escape function scope")
-			}
+		if _, isRef := retType.(*RefType); isRef {
+			line, col := s.ReturnValue.Pos()
+			c.warning(line, col, "reference cannot escape function scope")
 		}
 	}
 }
@@ -478,6 +487,8 @@ func (c *Checker) checkExpression(expr ast.Expression) Type {
 		t = c.checkDerefExpression(e)
 	case *ast.CastExpression:
 		t = c.checkCastExpression(e)
+	case *ast.AwaitExpression:
+		t = c.checkAwaitExpression(e)
 	default:
 		t = Any
 	}
@@ -627,6 +638,25 @@ func (c *Checker) checkAssignExpression(e *ast.AssignExpression) Type {
 		return leftType
 	}
 
+	if member, ok := e.Left.(*ast.MemberExpression); ok {
+		if ident, ok := member.Object.(*ast.Identifier); ok && ident.Value == "self" {
+			if selfType, exists := c.scope.Lookup("self"); exists {
+				if ref, ok := selfType.(*RefType); ok && !ref.Mutable {
+					line, col := e.Pos()
+					c.warning(line, col, "cannot assign to field through immutable receiver (&self)")
+				}
+			}
+		}
+		leftType := c.checkExpression(member)
+		if e.Operator == "=" {
+			if !c.isAssignable(leftType, rightType) {
+				line, col := e.Pos()
+				c.error(line, col, "cannot assign %s to %s", rightType.String(), leftType.String())
+			}
+		}
+		return leftType
+	}
+
 	return Any
 }
 
@@ -765,6 +795,24 @@ func (c *Checker) checkFunctionLiteral(e *ast.FunctionLiteral) Type {
 		retType = c.resolveTypeExpr(e.ReturnType)
 	}
 
+	prevScope := c.scope
+	prevOwnership := c.pushOwnership()
+	prevBorrows := c.pushBorrows()
+	c.scope = NewScope(prevScope)
+
+	for i, p := range e.Parameters {
+		c.scope.Define(p.Name.Value, paramTypes[i])
+		c.trackOwnership(p.Name.Value, paramTypes[i])
+	}
+
+	if e.Body != nil {
+		c.checkBlockStatement(e.Body)
+	}
+
+	c.scope = prevScope
+	c.popOwnership(prevOwnership)
+	c.popBorrows(prevBorrows)
+
 	return &FunctionType{Params: paramTypes, Return: retType}
 }
 
@@ -870,7 +918,14 @@ func (c *Checker) checkClassStatement(s *ast.ClassStatement) {
 		prevBorrows := c.pushBorrows()
 		c.scope = NewScope(prevScope)
 
-		c.scope.Define("self", classType)
+		switch method.Receiver {
+		case ast.RecvRef:
+			c.scope.Define("self", &RefType{Inner: classType, Mutable: false})
+		case ast.RecvMutRef:
+			c.scope.Define("self", &RefType{Inner: classType, Mutable: true})
+		case ast.RecvValue:
+			c.scope.Define("self", classType)
+		}
 
 		paramTypes := make([]Type, len(method.Parameters))
 		for i, p := range method.Parameters {
@@ -894,6 +949,7 @@ func (c *Checker) checkClassStatement(s *ast.ClassStatement) {
 
 func (c *Checker) checkInterfaceStatement(s *ast.InterfaceStatement) {
 	methods := make(map[string]*FunctionType)
+	receivers := make(map[string]ast.ReceiverKind)
 
 	for _, sig := range s.Methods {
 		paramTypes := make([]Type, len(sig.Parameters))
@@ -911,10 +967,12 @@ func (c *Checker) checkInterfaceStatement(s *ast.InterfaceStatement) {
 		}
 
 		methods[sig.Name.Value] = &FunctionType{Params: paramTypes, Return: retType}
+		receivers[sig.Name.Value] = sig.Receiver
 	}
 
 	ifaceType := &InterfaceType{Name: s.Name.Value, Methods: methods}
 	c.scope.Define(s.Name.Value, ifaceType)
+	c.ifaceReceivers[s.Name.Value] = receivers
 }
 
 func (c *Checker) checkImplStatement(s *ast.ImplStatement) {
@@ -939,6 +997,8 @@ func (c *Checker) checkImplStatement(s *ast.ImplStatement) {
 	}
 
 	implMethods := make(map[string]*FunctionType)
+	implReceivers := make(map[string]ast.ReceiverKind)
+	implDecls := make(map[string]*ast.MethodDecl)
 	for _, method := range s.Methods {
 		paramTypes := make([]Type, len(method.Parameters))
 		for i, p := range method.Parameters {
@@ -955,13 +1015,22 @@ func (c *Checker) checkImplStatement(s *ast.ImplStatement) {
 		}
 
 		implMethods[method.Name.Value] = &FunctionType{Params: paramTypes, Return: retType}
+		implReceivers[method.Name.Value] = method.Receiver
+		implDecls[method.Name.Value] = method
 
 		prevScope := c.scope
 		prevOwnership := c.pushOwnership()
 		prevBorrows := c.pushBorrows()
 		c.scope = NewScope(prevScope)
 
-		c.scope.Define("self", classType)
+		switch method.Receiver {
+		case ast.RecvRef:
+			c.scope.Define("self", &RefType{Inner: classType, Mutable: false})
+		case ast.RecvMutRef:
+			c.scope.Define("self", &RefType{Inner: classType, Mutable: true})
+		case ast.RecvValue:
+			c.scope.Define("self", classType)
+		}
 
 		for i, p := range method.Parameters {
 			c.scope.Define(p.Name.Value, paramTypes[i])
@@ -1001,6 +1070,18 @@ func (c *Checker) checkImplStatement(s *ast.ImplStatement) {
 			c.error(line, col, "method %s: return type mismatch: expected %s, got %s",
 				name, ifaceMethod.Return.String(), implMethod.Return.String())
 		}
+		if ifaceReceiverMap, ok := c.ifaceReceivers[s.Interface.Value]; ok {
+			if ifaceReceiver, ok := ifaceReceiverMap[name]; ok {
+				if implReceiver, ok := implReceivers[name]; ok && ifaceReceiver != implReceiver {
+					line, col := s.Pos()
+					if decl, ok := implDecls[name]; ok {
+						line, col = decl.Name.Pos()
+					}
+					c.warning(line, col, "receiver mismatch for method %s: interface expects %s, impl has %s",
+						name, receiverKindName(ifaceReceiver), receiverKindName(implReceiver))
+				}
+			}
+		}
 	}
 
 	if c.impls[s.Type.Value] == nil {
@@ -1023,10 +1104,42 @@ func (c *Checker) checkCastExpression(e *ast.CastExpression) Type {
 	return targetType
 }
 
+func (c *Checker) checkAwaitExpression(e *ast.AwaitExpression) Type {
+	if !c.inAsyncFn {
+		line, col := e.Pos()
+		c.error(line, col, "await can only be used inside async functions")
+		return Any
+	}
+
+	for name, info := range c.borrows {
+		if info.ImmutableCount > 0 || info.MutableActive {
+			line, col := e.Pos()
+			c.error(line, col, "borrow of '%s' cannot be held across await point", name)
+		}
+	}
+
+	innerType := c.checkExpression(e.Value)
+	if ft, ok := innerType.(*FutureType); ok {
+		return ft.Inner
+	}
+
+	line, col := e.Pos()
+	c.error(line, col, "await requires Future type, got %s", innerType.String())
+	return Any
+}
+
 func (c *Checker) checkMemberExpressionForInterface(e *ast.MemberExpression, objType Type) Type {
 	if ref, ok := objType.(*RefType); ok {
 		if iface, ok := ref.Inner.(*InterfaceType); ok {
 			if methodType, exists := iface.Methods[e.Member.Value]; exists {
+				if ifaceReceiverMap, ok := c.ifaceReceivers[iface.Name]; ok {
+					if recv, ok := ifaceReceiverMap[e.Member.Value]; ok {
+						if recv == ast.RecvMutRef && !ref.Mutable {
+							line, col := e.Member.Pos()
+							c.error(line, col, "cannot call &mut self method '%s' through immutable interface reference", e.Member.Value)
+						}
+					}
+				}
 				return methodType
 			}
 			line, col := e.Member.Pos()
@@ -1082,4 +1195,19 @@ func (c *Checker) isAssignable(target, source Type) bool {
 		return true
 	}
 	return false
+}
+
+func receiverKindName(kind ast.ReceiverKind) string {
+	switch kind {
+	case ast.RecvRef:
+		return "&self"
+	case ast.RecvMutRef:
+		return "&mut self"
+	case ast.RecvValue:
+		return "self"
+	case ast.RecvNone:
+		return "none"
+	default:
+		return "unknown"
+	}
 }

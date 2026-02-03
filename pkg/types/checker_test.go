@@ -481,3 +481,299 @@ s = "world";
 		t.Fatalf("expected assign while borrowed warning, got %v", warnings)
 	}
 }
+
+func TestSelfMutationThroughImmutableReceiver(t *testing.T) {
+	input := `
+class Foo {
+	x: int = 0
+	fn get(&self) -> int {
+		self.x = 5;
+		return self.x;
+	}
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+	warnings := checker.Warnings()
+	if len(warnings) == 0 {
+		t.Fatalf("expected warning, got none")
+	}
+	found := false
+	for _, warning := range warnings {
+		if strings.Contains(warning, "cannot assign to field through immutable receiver (&self)") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected immutable receiver warning, got %v", warnings)
+	}
+}
+
+func TestReceiverMismatchInImpl(t *testing.T) {
+	input := `
+interface Readable {
+	fn read(&self) -> int;
+}
+class Doc {
+	x: int = 0
+}
+impl Readable for Doc {
+	fn read(&mut self) -> int {
+		return self.x;
+	}
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+	warnings := checker.Warnings()
+	if len(warnings) == 0 {
+		t.Fatalf("expected warning, got none")
+	}
+	found := false
+	for _, warning := range warnings {
+		if strings.Contains(warning, "receiver mismatch for method read") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected receiver mismatch warning, got %v", warnings)
+	}
+}
+
+func TestMutMethodThroughImmutableInterfaceRef(t *testing.T) {
+	input := `
+interface Writable {
+	fn write(&mut self, value: int);
+}
+class Doc {
+	x: int = 0
+}
+impl Writable for Doc {
+	fn write(&mut self, value: int) {
+		self.x = value;
+	}
+}
+let d = new Doc;
+let w = &d as &Writable;
+w.write(1);
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if ok {
+		t.Fatalf("expected error, got none")
+	}
+	found := false
+	for _, err := range checker.Errors() {
+		if strings.Contains(err, "cannot call &mut self method 'write' through immutable interface reference") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected immutable interface dispatch error, got %v", checker.Errors())
+	}
+}
+
+func TestFunctionLiteralBodyTypeCheck(t *testing.T) {
+	input := `
+let f = fn(x: int) -> int {
+	let y: string = x;
+	return y;
+};
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	checker := NewChecker()
+	checker.Check(program)
+
+	if len(checker.Errors()) == 0 {
+		t.Fatalf("expected type error inside function literal body, got none")
+	}
+	found := false
+	for _, err := range checker.Errors() {
+		if strings.Contains(err, "cannot assign") || strings.Contains(err, "type mismatch") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected type error inside function literal body, got: %v", checker.Errors())
+	}
+}
+
+func TestFunctionLiteralBodyNoError(t *testing.T) {
+	input := `
+let f = fn(x: int) -> int {
+	return x + 1;
+};
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	checker := NewChecker()
+	checker.Check(program)
+
+	for _, err := range checker.Errors() {
+		t.Errorf("unexpected error: %s", err)
+	}
+}
+
+func TestAwaitOutsideAsyncError(t *testing.T) {
+	input := `
+async fn fetch() -> int {
+	return 1;
+}
+fn sync_fn() -> int {
+	return await fetch();
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if ok {
+		t.Fatal("expected error for await outside async")
+	}
+	found := false
+	for _, err := range checker.Errors() {
+		if strings.Contains(err, "await") && strings.Contains(err, "async") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected await-outside-async error, got %v", checker.Errors())
+	}
+}
+
+func TestAwaitNonFutureError(t *testing.T) {
+	input := `
+async fn do_work() -> int {
+	let x = 42;
+	return await x;
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if ok {
+		t.Fatal("expected error for await on non-future")
+	}
+	found := false
+	for _, err := range checker.Errors() {
+		if strings.Contains(err, "await") && strings.Contains(err, "Future") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected await-requires-future error, got %v", checker.Errors())
+	}
+}
+
+func TestBorrowAcrossAwaitError(t *testing.T) {
+	input := `
+async fn fetch() -> int {
+	return 1;
+}
+async fn bad_borrow() -> int {
+	let s = "hello";
+	let r = &s;
+	let x = await fetch();
+	return x;
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if ok {
+		t.Fatal("expected error for borrow across await")
+	}
+	found := false
+	for _, err := range checker.Errors() {
+		if strings.Contains(err, "borrow") && strings.Contains(err, "await") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected 'borrow across await' error, got %v", checker.Errors())
+	}
+}
+
+func TestAsyncFnReturnType(t *testing.T) {
+	input := `
+async fn fetch() -> int {
+	return 42;
+}
+async fn caller() -> int {
+	let x = await fetch();
+	return x;
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+}
