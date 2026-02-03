@@ -8,42 +8,9 @@ How the compiler is structured. Mostly notes for myself but might be useful if y
 
 ## Pipeline
 
-```
-Source Code (.carv)
-       │
-       ▼
-    Lexer (pkg/lexer)
-       │
-       ▼
-    Tokens
-       │
-       ▼
-    Parser (pkg/parser)
-       │
-       ▼
-    AST (pkg/ast)
-       │
-       ▼
-    Type Checker (pkg/types)
-       │
-       ├──────────────────┐
-       ▼                  ▼
-  Interpreter         Code Generator
-  (pkg/eval)          (pkg/codegen)
-       │                  │
-       │                  │
-  Module Loader           │
-  (pkg/module)            │
-       │                  │
-       ▼                  ▼
-    Output            C Source
-                          │
-                          ▼
-                     GCC/Clang
-                          │
-                          ▼
-                      Binary
-```
+Source → Lexer → Tokens → Parser → AST → Type Checker → Interpreter or C Codegen → GCC/Clang → Binary
+
+The type checker produces a `CheckResult` with type info, ownership tracking, and warnings. Both the interpreter and codegen consume this result.
 
 ## Package Overview
 
@@ -72,9 +39,16 @@ The parser is probably the messiest part of the codebase. It works but could use
 
 ### `pkg/types`
 
-Type checker. Walks the AST and validates types, builds symbol tables.
+Type checker. Walks the AST and validates types, builds symbol tables, tracks ownership.
 
-Currently pretty basic - doesn't do full type inference, mostly just checks that operations are valid.
+Produces a `CheckResult` with:
+- `NodeTypes`: type of every expression
+- `FuncSigs`: function signatures
+- `ClassInfo`: class field/method info
+- `Errors`: type errors (fatal in codegen)
+- `Warnings`: ownership/borrow violations (warnings in interpreter, fatal in codegen)
+
+Implements ownership tracking (move/drop), borrow checking (&T / &mut T), and a warnings system for non-fatal violations.
 
 ### `pkg/eval`
 
@@ -90,7 +64,14 @@ Key files:
 
 Generates C code from the AST. The generated C is not pretty but it works.
 
-Currently targets C99. The runtime includes an arena allocator and helper macros for strings, arrays, maps, and Result types.
+Currently targets C99. Key features:
+- **Scope stack**: tracks variable lifetimes for drop insertion
+- **Preamble buffer**: emits runtime helpers (carv_string, carv_array, etc.)
+- **carv_string struct**: `{char* data; size_t len; bool owned;}`
+- **Single-exit functions**: all returns become `goto __carv_exit` with drops at exit label
+- **Ownership-aware code generation**: emits `carv_string_move()`, `carv_string_drop()`, `carv_string_clone()`
+- **Borrow support**: `&T` → `const T*`, `&mut T` → `T*`
+- **Arena allocator**: used for all owned heap values
 
 ### `pkg/module`
 
@@ -129,9 +110,12 @@ The goal is self-hosting - writing the Carv compiler in Carv. That means I need:
 
 1. ~~Module/import system~~ ✓ Done!
 2. ~~String interpolation~~ ✓ Done!
-3. Package manager (for external dependencies)
-4. Better standard library
-5. Then rewrite lexer, parser, codegen in Carv
+3. ~~Ownership system (move + drop)~~ ✓ Done!
+4. ~~Borrowing (&T / &mut T)~~ ✓ Done!
+5. Interfaces (interface/impl) — Next
+6. Package manager (for external dependencies)
+7. Better standard library
+8. Then rewrite lexer, parser, codegen in Carv
 
 It's a long road but that's half the fun. Getting closer though!
 

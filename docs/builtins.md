@@ -352,6 +352,21 @@ Crash with error message.
 panic("something went wrong");
 ```
 
+## Ownership
+
+### `clone(value) -> value`
+Deep copy of any move type (string, array, map, or class instance).
+
+```carv
+let original = "hello";
+let copy = original.clone();
+print(original);  // OK: "hello"
+print(copy);      // OK: "hello"
+
+let arr = [1, 2, 3];
+let arr_copy = arr.clone();
+```
+
 ---
 
 [← Architecture](architecture.md) | **Built-ins** | [Contributing →](../CONTRIBUTING.md)

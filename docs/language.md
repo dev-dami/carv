@@ -65,6 +65,105 @@ let c: char = 'a';
 
 Type inference works most of the time so you can skip annotations.
 
+## Ownership
+
+Carv has a move-based ownership system. Some types are **copy types** (implicitly copied), others are **move types** (ownership is transferred).
+
+### Copy Types
+
+Copy types are implicitly copied on assignment: `int`, `float`, `bool`, `char`, and references (`&T`, `&mut T`).
+
+```carv
+let x = 42;
+let y = x;      // x is copied, both x and y are valid
+print(x);       // OK
+print(y);       // OK
+```
+
+### Move Types
+
+Move types transfer ownership on assignment: `string`, `[]T` (arrays), `{K:V}` (maps), and class instances.
+
+```carv
+let s = "hello";
+let t = s;      // s is moved into t, s is now invalid
+// print(s);    // ERROR: use of moved value 's'
+print(t);       // OK: "hello"
+
+mut x = "world";
+x = "new";      // old value dropped, new value assigned
+```
+
+### clone() for Deep Copy
+
+Use `clone()` to explicitly deep copy a move type:
+
+```carv
+let a = "hello";
+let b = a.clone();  // deep copy
+print(a);           // OK
+print(b);           // OK
+```
+
+## Borrowing
+
+References allow temporary access without transferring ownership. Carv enforces borrow rules at compile time.
+
+### Immutable Borrows
+
+Use `&x` to create an immutable borrow:
+
+```carv
+fn print_len(s: &string) -> int {
+    return len(s);
+}
+
+let msg = "hello";
+print_len(&msg);    // immutable borrow — msg still valid
+print(msg);         // OK
+```
+
+### Mutable Borrows
+
+Use `&mut x` to create a mutable borrow:
+
+```carv
+fn append_excl(s: &mut string) {
+    *s = *s + "!";
+}
+
+mut greeting = "hi";
+append_excl(&mut greeting);  // mutable borrow
+print(greeting);             // "hi!"
+```
+
+### Borrow Rules
+
+- **One mutable XOR many immutable**: You can have either one mutable borrow OR multiple immutable borrows, but not both.
+- **No borrow escape**: References cannot be returned from functions or stored in fields.
+- **Can't move while borrowed**: You cannot move or reassign a value while it is borrowed.
+
+```carv
+let s = "hello";
+let r = &s;
+// let t = s;   // ERROR: cannot move 's' while it is borrowed
+print(len(r));  // OK: 5
+```
+
+### Dereference
+
+Use `*x` to dereference a reference:
+
+```carv
+fn increment(x: &mut int) {
+    *x = *x + 1;
+}
+
+mut n = 5;
+increment(&mut n);
+print(n);  // 6
+```
+
 ## Arrays
 
 ```carv
@@ -305,6 +404,7 @@ fn calculate() -> Result {
 - `int(x)` - convert to int
 - `float(x)` - convert to float
 - `type_of(x)` - get type as string
+- `clone(x)` - deep copy of any move type (string, array, map, class instance)
 
 ### Arrays
 - `push(arr, item)` - return new array with item appended

@@ -61,13 +61,15 @@ pkg/
   lexer/        # tokenizer
   parser/       # parser
   ast/          # AST definitions
-  types/        # type checker
+  types/        # type checker (ownership tracking, borrow checking)
   eval/         # interpreter
-  codegen/      # C code generator
+  codegen/      # C code generator (ownership-aware, borrow support)
   module/       # module loader & carv.toml config
 examples/       # example programs
 docs/           # documentation
 ```
+
+**Ownership & Borrowing**: The type checker (`pkg/types`) tracks ownership (move/drop) and enforces borrow rules. The codegen (`pkg/codegen`) emits ownership-aware C code with proper drop calls and borrow support (&T / &mut T).
 
 ## Response Time
 
