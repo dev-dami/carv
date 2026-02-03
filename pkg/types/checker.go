@@ -35,6 +35,7 @@ type Checker struct {
 	nodeTypes      map[ast.Expression]Type
 	impls          map[string]map[string]bool
 	ifaceReceivers map[string]map[string]ast.ReceiverKind
+	inAsyncFn      bool
 }
 
 type Scope struct {
@@ -310,13 +311,20 @@ func (c *Checker) checkFunctionStatement(s *ast.FunctionStatement) {
 		retType = c.resolveTypeExpr(s.ReturnType)
 	}
 
-	fnType := &FunctionType{Params: paramTypes, Return: retType}
+	fnRetType := retType
+	if s.Async {
+		fnRetType = &FutureType{Inner: retType}
+	}
+
+	fnType := &FunctionType{Params: paramTypes, Return: fnRetType}
 	c.scope.Define(s.Name.Value, fnType)
 
 	prevScope := c.scope
 	prevOwnership := c.pushOwnership()
 	prevBorrows := c.pushBorrows()
+	prevAsync := c.inAsyncFn
 	c.scope = NewScope(prevScope)
+	c.inAsyncFn = s.Async
 
 	for i, p := range s.Parameters {
 		c.scope.Define(p.Name.Value, paramTypes[i])
@@ -325,6 +333,7 @@ func (c *Checker) checkFunctionStatement(s *ast.FunctionStatement) {
 
 	c.checkBlockStatement(s.Body)
 	c.scope = prevScope
+	c.inAsyncFn = prevAsync
 	c.popOwnership(prevOwnership)
 	c.popBorrows(prevBorrows)
 }
@@ -480,6 +489,8 @@ func (c *Checker) checkExpression(expr ast.Expression) Type {
 		t = c.checkDerefExpression(e)
 	case *ast.CastExpression:
 		t = c.checkCastExpression(e)
+	case *ast.AwaitExpression:
+		t = c.checkAwaitExpression(e)
 	default:
 		t = Any
 	}
@@ -1093,6 +1104,30 @@ func (c *Checker) checkCastExpression(e *ast.CastExpression) Type {
 	}
 
 	return targetType
+}
+
+func (c *Checker) checkAwaitExpression(e *ast.AwaitExpression) Type {
+	if !c.inAsyncFn {
+		line, col := e.Pos()
+		c.error(line, col, "await can only be used inside async functions")
+		return Any
+	}
+
+	for name, info := range c.borrows {
+		if info.ImmutableCount > 0 || info.MutableActive {
+			line, col := e.Pos()
+			c.error(line, col, "borrow of '%s' cannot be held across await point", name)
+		}
+	}
+
+	innerType := c.checkExpression(e.Value)
+	if ft, ok := innerType.(*FutureType); ok {
+		return ft.Inner
+	}
+
+	line, col := e.Pos()
+	c.error(line, col, "await requires Future type, got %s", innerType.String())
+	return Any
 }
 
 func (c *Checker) checkMemberExpressionForInterface(e *ast.MemberExpression, objType Type) Type {

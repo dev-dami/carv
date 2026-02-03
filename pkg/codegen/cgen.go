@@ -52,6 +52,23 @@ type CGenerator struct {
 	closureDefs     []string
 	captureMap      map[string]string // varName -> "__env->varName" during closure function generation
 	lastClosureType string
+	hasAsync        bool
+	asyncFns        map[string]*asyncFnInfo
+	inAsyncFn       bool
+	asyncFnName     string
+	asyncStateID    int
+}
+
+type asyncFnInfo struct {
+	Name       string
+	Params     []paramInfo
+	Locals     []paramInfo
+	ReturnType string
+}
+
+type paramInfo struct {
+	Name  string
+	CType string
 }
 
 func NewCGenerator() *CGenerator {
@@ -59,6 +76,7 @@ func NewCGenerator() *CGenerator {
 		arrayLengths:  make(map[string]int),
 		fnReturnTypes: make(map[string]string),
 		interfaces:    make(map[string]*interfaceInfo),
+		asyncFns:      make(map[string]*asyncFnInfo),
 	}
 	g.scope = newScope(nil)
 	return g
@@ -142,6 +160,9 @@ func checkerTypeToCString(t types.Type) string {
 		return iface.Name + "_ref"
 	}
 	if _, ok := t.(*types.FunctionType); ok {
+		return "void*"
+	}
+	if _, ok := t.(*types.FutureType); ok {
 		return "void*"
 	}
 	return ""
@@ -228,6 +249,42 @@ func (g *CGenerator) collectFunctionReturnTypes(program *ast.Program) {
 	}
 }
 
+func (g *CGenerator) collectAsyncFunctions(program *ast.Program) {
+	for _, stmt := range program.Statements {
+		if fn, ok := stmt.(*ast.FunctionStatement); ok && fn.Async {
+			g.hasAsync = true
+			info := &asyncFnInfo{
+				Name:       fn.Name.Value,
+				ReturnType: g.inferFunctionReturnType(fn),
+			}
+			for _, p := range fn.Parameters {
+				info.Params = append(info.Params, paramInfo{
+					Name:  p.Name.Value,
+					CType: g.typeToC(p.Type),
+				})
+			}
+			g.collectAsyncLocals(fn.Body, info)
+			g.asyncFns[fn.Name.Value] = info
+		}
+	}
+}
+
+func (g *CGenerator) collectAsyncLocals(body *ast.BlockStatement, info *asyncFnInfo) {
+	if body == nil {
+		return
+	}
+	for _, stmt := range body.Statements {
+		switch s := stmt.(type) {
+		case *ast.LetStatement:
+			varType := g.inferType(s.Value)
+			info.Locals = append(info.Locals, paramInfo{
+				Name:  s.Name.Value,
+				CType: varType,
+			})
+		}
+	}
+}
+
 func (g *CGenerator) inferResultPayloadTypes(body *ast.BlockStatement) (okType, errType string) {
 	okType = "carv_int"
 	errType = "carv_string"
@@ -247,6 +304,7 @@ func (g *CGenerator) inferResultPayloadTypes(body *ast.BlockStatement) (okType, 
 func (g *CGenerator) Generate(program *ast.Program) string {
 	g.collectFunctionReturnTypes(program)
 	g.collectInterfacesAndImpls(program)
+	g.collectAsyncFunctions(program)
 	g.emitRuntime()
 
 	for _, stmt := range program.Statements {
@@ -291,16 +349,33 @@ func (g *CGenerator) Generate(program *ast.Program) string {
 	preMainOutput := g.output.String()
 	g.output.Reset()
 
+	var asyncMain *ast.FunctionStatement
+	for _, stmt := range program.Statements {
+		if fn, ok := stmt.(*ast.FunctionStatement); ok && fn.Name.Value == "main" && fn.Async {
+			asyncMain = fn
+			break
+		}
+	}
+
 	g.writeln("")
 	g.writeln("int main(void) {")
 	g.indent++
 
-	for _, stmt := range program.Statements {
-		switch stmt.(type) {
-		case *ast.FunctionStatement, *ast.ClassStatement, *ast.InterfaceStatement, *ast.ImplStatement:
-			continue
-		default:
-			g.generateStatement(stmt)
+	if asyncMain != nil {
+		g.writeln("carv_loop loop;")
+		g.writeln("carv_loop_init(&loop);")
+		g.writeln("carv_main_frame* mf = carv_main();")
+		g.writeln("carv_task main_task = { .poll = carv_main_poll, .drop = NULL, .frame = mf };")
+		g.writeln("carv_loop_add_task(&loop, &main_task);")
+		g.writeln("carv_loop_run(&loop);")
+	} else {
+		for _, stmt := range program.Statements {
+			switch stmt.(type) {
+			case *ast.FunctionStatement, *ast.ClassStatement, *ast.InterfaceStatement, *ast.ImplStatement:
+				continue
+			default:
+				g.generateStatement(stmt)
+			}
 		}
 	}
 
@@ -650,12 +725,67 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("carv_result carv_err_str(carv_string val) { carv_result r; r.is_ok = false; r.err_tag = CARV_TYPE_STRING; r.err.err_str = val; return r; }")
 	g.writeln("carv_result carv_err_code(carv_int val) { carv_result r; r.is_ok = false; r.err_tag = CARV_TYPE_INT; r.err.err_code = val; return r; }")
 	g.writeln("")
+
+	if g.hasAsync {
+		g.emitEventLoopRuntime()
+	}
+}
+
+func (g *CGenerator) emitEventLoopRuntime() {
+	g.writeln("typedef struct carv_loop carv_loop;")
+	g.writeln("typedef struct carv_task {")
+	g.writeln("    bool (*poll)(void*, carv_loop*);")
+	g.writeln("    void (*drop)(void*);")
+	g.writeln("    void* frame;")
+	g.writeln("} carv_task;")
+	g.writeln("")
+	g.writeln("struct carv_loop {")
+	g.writeln("    carv_task** ready;")
+	g.writeln("    int ready_count;")
+	g.writeln("    int ready_cap;")
+	g.writeln("};")
+	g.writeln("")
+	g.writeln("static void carv_loop_init(carv_loop* loop) {")
+	g.writeln("    loop->ready = NULL;")
+	g.writeln("    loop->ready_count = 0;")
+	g.writeln("    loop->ready_cap = 0;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static void carv_loop_add_task(carv_loop* loop, carv_task* task) {")
+	g.writeln("    if (loop->ready_count >= loop->ready_cap) {")
+	g.writeln("        int newcap = loop->ready_cap == 0 ? 4 : loop->ready_cap * 2;")
+	g.writeln("        loop->ready = (carv_task**)realloc(loop->ready, newcap * sizeof(carv_task*));")
+	g.writeln("        loop->ready_cap = newcap;")
+	g.writeln("    }")
+	g.writeln("    loop->ready[loop->ready_count++] = task;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static void carv_loop_run(carv_loop* loop) {")
+	g.writeln("    while (loop->ready_count > 0) {")
+	g.writeln("        for (int i = 0; i < loop->ready_count; ) {")
+	g.writeln("            carv_task* t = loop->ready[i];")
+	g.writeln("            if (t->poll(t->frame, loop)) {")
+	g.writeln("                if (t->drop) t->drop(t->frame);")
+	g.writeln("                loop->ready[i] = loop->ready[--loop->ready_count];")
+	g.writeln("            } else {")
+	g.writeln("                i++;")
+	g.writeln("            }")
+	g.writeln("        }")
+	g.writeln("    }")
+	g.writeln("    if (loop->ready) free(loop->ready);")
+	g.writeln("}")
+	g.writeln("")
 }
 
 func (g *CGenerator) generateFunctionDecl(fn *ast.FunctionStatement) {
-	retType := g.inferFunctionReturnType(fn)
-	params := g.paramsToC(fn.Parameters)
 	fnName := g.safeName(fn.Name.Value)
+	params := g.paramsToC(fn.Parameters)
+	if fn.Async {
+		frameName := fnName + "_frame"
+		g.writeln(fmt.Sprintf("%s* %s(%s);", frameName, fnName, params))
+		return
+	}
+	retType := g.inferFunctionReturnType(fn)
 	g.writeln(fmt.Sprintf("%s %s(%s);", retType, fnName, params))
 }
 
@@ -711,7 +841,198 @@ func (g *CGenerator) safeName(name string) string {
 	return name
 }
 
+func (g *CGenerator) generateAsyncFunction(fn *ast.FunctionStatement) {
+	fnName := g.safeName(fn.Name.Value)
+	info := g.asyncFns[fn.Name.Value]
+	retType := info.ReturnType
+	frameName := fnName + "_frame"
+	pollName := fnName + "_poll"
+
+	var frameDef strings.Builder
+	frameDef.WriteString(fmt.Sprintf("typedef struct {\n    int __state;\n"))
+	for _, p := range info.Params {
+		frameDef.WriteString(fmt.Sprintf("    %s %s;\n", p.CType, p.Name))
+	}
+	for _, l := range info.Locals {
+		frameDef.WriteString(fmt.Sprintf("    %s %s;\n", l.CType, l.Name))
+	}
+	if retType != "void" {
+		frameDef.WriteString(fmt.Sprintf("    %s __result;\n", retType))
+	}
+	frameDef.WriteString("    void* __sub_future;\n")
+	frameDef.WriteString(fmt.Sprintf("} %s;\n", frameName))
+	g.closureDefs = append(g.closureDefs, frameDef.String())
+
+	var pollFn strings.Builder
+	pollFn.WriteString(fmt.Sprintf("static bool %s(void* __raw_frame, carv_loop* __loop) {\n", pollName))
+	pollFn.WriteString(fmt.Sprintf("    %s* f = (%s*)__raw_frame;\n", frameName, frameName))
+	pollFn.WriteString("    switch (f->__state) {\n")
+	pollFn.WriteString("    case 0:\n")
+
+	oldOutput := g.output
+	oldIndent := g.indent
+	oldInFunction := g.inFunction
+	oldFuncRetType := g.funcRetType
+
+	g.output = strings.Builder{}
+	g.indent = 2
+	g.inFunction = true
+	g.funcRetType = retType
+	g.inAsyncFn = true
+	g.asyncFnName = fnName
+	g.asyncStateID = 0
+	g.enterScope()
+
+	for _, p := range fn.Parameters {
+		pType := g.typeToC(p.Type)
+		g.declareVar(p.Name.Value, pType, false, false)
+	}
+	for _, l := range info.Locals {
+		g.declareVar(l.Name, l.CType, true, false)
+	}
+
+	for _, stmt := range fn.Body.Statements {
+		g.generateAsyncStatement(stmt)
+	}
+
+	if retType != "void" {
+		g.writeln("return true;")
+	} else {
+		g.writeln("return true;")
+	}
+
+	pollFn.WriteString(g.output.String())
+	pollFn.WriteString("    }\n    return true;\n}\n")
+
+	g.exitScope()
+	g.inAsyncFn = false
+
+	g.closureDefs = append(g.closureDefs, pollFn.String())
+
+	g.output = oldOutput
+	g.indent = oldIndent
+	g.inFunction = oldInFunction
+	g.funcRetType = oldFuncRetType
+
+	frameType := frameName + "*"
+	g.writeln(fmt.Sprintf("%s %s(%s) {", frameType, fnName, g.paramsToC(fn.Parameters)))
+	g.indent++
+	g.writeln(fmt.Sprintf("%s* f = (%s*)carv_arena_alloc(sizeof(%s));", frameName, frameName, frameName))
+	g.writeln("f->__state = 0;")
+	for _, p := range fn.Parameters {
+		pName := p.Name.Value
+		g.writeln(fmt.Sprintf("f->%s = %s;", pName, pName))
+	}
+	g.writeln("return f;")
+	g.indent--
+	g.writeln("}")
+	g.writeln("")
+}
+
+func (g *CGenerator) generateAsyncStatement(stmt ast.Statement) {
+	switch s := stmt.(type) {
+	case *ast.LetStatement:
+		value := g.generateAsyncExpression(s.Value)
+		g.flushPreamble()
+		g.writeln(fmt.Sprintf("f->%s = %s;", s.Name.Value, value))
+	case *ast.ReturnStatement:
+		if s.ReturnValue != nil {
+			value := g.generateAsyncExpression(s.ReturnValue)
+			g.flushPreamble()
+			g.writeln(fmt.Sprintf("f->__result = %s;", value))
+		}
+		g.writeln("return true;")
+	case *ast.ExpressionStatement:
+		if ifExpr, ok := s.Expression.(*ast.IfExpression); ok {
+			g.generateAsyncIfStatement(ifExpr)
+		} else {
+			expr := g.generateAsyncExpression(s.Expression)
+			g.flushPreamble()
+			if expr != "" {
+				g.writeln(expr + ";")
+			}
+		}
+	default:
+		g.generateStatement(stmt)
+	}
+}
+
+func (g *CGenerator) generateAsyncIfStatement(e *ast.IfExpression) {
+	cond := g.generateAsyncExpression(e.Condition)
+	g.flushPreamble()
+	g.writeln(fmt.Sprintf("if (%s) {", cond))
+	g.indent++
+	for _, stmt := range e.Consequence.Statements {
+		g.generateAsyncStatement(stmt)
+	}
+	g.indent--
+	if e.Alternative != nil {
+		g.writeln("} else {")
+		g.indent++
+		for _, stmt := range e.Alternative.Statements {
+			g.generateAsyncStatement(stmt)
+		}
+		g.indent--
+	}
+	g.writeln("}")
+}
+
+func (g *CGenerator) generateAsyncExpression(expr ast.Expression) string {
+	switch e := expr.(type) {
+	case *ast.Identifier:
+		if g.inAsyncFn {
+			if info := g.asyncFns[g.asyncFnName]; info != nil {
+				for _, p := range info.Params {
+					if p.Name == e.Value {
+						return fmt.Sprintf("f->%s", e.Value)
+					}
+				}
+				for _, l := range info.Locals {
+					if l.Name == e.Value {
+						return fmt.Sprintf("f->%s", e.Value)
+					}
+				}
+			}
+		}
+		return g.generateExpression(expr)
+	case *ast.AwaitExpression:
+		return g.generateAwaitExpression(e)
+	default:
+		return g.generateExpression(expr)
+	}
+}
+
+func (g *CGenerator) generateAwaitExpression(e *ast.AwaitExpression) string {
+	subFuture := g.generateAsyncExpression(e.Value)
+	g.flushPreamble()
+
+	g.asyncStateID++
+	nextState := g.asyncStateID
+
+	g.writeln(fmt.Sprintf("f->__sub_future = %s;", subFuture))
+	g.writeln(fmt.Sprintf("f->__state = %d;", nextState))
+	g.writeln("return false;")
+	g.writeln(fmt.Sprintf("case %d:", nextState))
+
+	if call, ok := e.Value.(*ast.CallExpression); ok {
+		if ident, ok := call.Function.(*ast.Identifier); ok {
+			subFnName := g.safeName(ident.Value)
+			pollFn := subFnName + "_poll"
+			frameTy := subFnName + "_frame"
+			g.writeln(fmt.Sprintf("if (!%s(f->__sub_future, __loop)) return false;", pollFn))
+			return fmt.Sprintf("((%s*)f->__sub_future)->__result", frameTy)
+		}
+	}
+
+	return "0"
+}
+
 func (g *CGenerator) generateFunction(fn *ast.FunctionStatement) {
+	if fn.Async {
+		g.generateAsyncFunction(fn)
+		return
+	}
+
 	retType := g.inferFunctionReturnType(fn)
 	params := g.paramsToC(fn.Parameters)
 	fnName := g.safeName(fn.Name.Value)
@@ -1962,6 +2283,15 @@ func (g *CGenerator) inferExprType(expr ast.Expression) string {
 		return inner
 	case *ast.CastExpression:
 		return g.typeToC(e.Type)
+	case *ast.AwaitExpression:
+		if call, ok := e.Value.(*ast.CallExpression); ok {
+			if ident, ok := call.Function.(*ast.Identifier); ok {
+				if info, exists := g.asyncFns[ident.Value]; exists {
+					return info.ReturnType
+				}
+			}
+		}
+		return "void*"
 	}
 	return "carv_int"
 }

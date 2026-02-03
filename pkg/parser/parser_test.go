@@ -818,6 +818,99 @@ func TestMethodReceiverMutRefDefault(t *testing.T) {
 	}
 }
 
+func TestAsyncFunctionParsing(t *testing.T) {
+	input := `async fn fetch_data() -> int {
+	return 42;
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+
+	fnStmt, ok := program.Statements[0].(*ast.FunctionStatement)
+	if !ok {
+		t.Fatalf("expected FunctionStatement, got %T", program.Statements[0])
+	}
+
+	if fnStmt.Name.Value != "fetch_data" {
+		t.Fatalf("expected function name 'fetch_data', got %s", fnStmt.Name.Value)
+	}
+
+	if !fnStmt.Async {
+		t.Fatal("expected Async to be true")
+	}
+}
+
+func TestAwaitExpressionParsing(t *testing.T) {
+	input := `await fetch();`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+
+	stmt, ok := program.Statements[0].(*ast.ExpressionStatement)
+	if !ok {
+		t.Fatalf("expected ExpressionStatement, got %T", program.Statements[0])
+	}
+
+	awaitExpr, ok := stmt.Expression.(*ast.AwaitExpression)
+	if !ok {
+		t.Fatalf("expected AwaitExpression, got %T", stmt.Expression)
+	}
+
+	call, ok := awaitExpr.Value.(*ast.CallExpression)
+	if !ok {
+		t.Fatalf("expected CallExpression inside await, got %T", awaitExpr.Value)
+	}
+
+	fn, ok := call.Function.(*ast.Identifier)
+	if !ok || fn.Value != "fetch" {
+		t.Fatalf("expected fetch call, got %v", call.Function)
+	}
+}
+
+func TestPubAsyncFn(t *testing.T) {
+	input := `pub async fn api_call() -> string {
+	return "ok";
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+
+	fnStmt, ok := program.Statements[0].(*ast.FunctionStatement)
+	if !ok {
+		t.Fatalf("expected FunctionStatement, got %T", program.Statements[0])
+	}
+
+	if !fnStmt.Public {
+		t.Fatal("expected Public to be true")
+	}
+
+	if !fnStmt.Async {
+		t.Fatal("expected Async to be true")
+	}
+
+	if fnStmt.Name.Value != "api_call" {
+		t.Fatalf("expected function name 'api_call', got %s", fnStmt.Name.Value)
+	}
+}
+
 func checkParserErrors(t *testing.T, p *Parser) {
 	errors := p.Errors()
 	if len(errors) == 0 {

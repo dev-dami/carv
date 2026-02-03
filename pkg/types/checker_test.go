@@ -649,3 +649,131 @@ let f = fn(x: int) -> int {
 		t.Errorf("unexpected error: %s", err)
 	}
 }
+
+func TestAwaitOutsideAsyncError(t *testing.T) {
+	input := `
+async fn fetch() -> int {
+	return 1;
+}
+fn sync_fn() -> int {
+	return await fetch();
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if ok {
+		t.Fatal("expected error for await outside async")
+	}
+	found := false
+	for _, err := range checker.Errors() {
+		if strings.Contains(err, "await") && strings.Contains(err, "async") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected await-outside-async error, got %v", checker.Errors())
+	}
+}
+
+func TestAwaitNonFutureError(t *testing.T) {
+	input := `
+async fn do_work() -> int {
+	let x = 42;
+	return await x;
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if ok {
+		t.Fatal("expected error for await on non-future")
+	}
+	found := false
+	for _, err := range checker.Errors() {
+		if strings.Contains(err, "await") && strings.Contains(err, "Future") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected await-requires-future error, got %v", checker.Errors())
+	}
+}
+
+func TestBorrowAcrossAwaitError(t *testing.T) {
+	input := `
+async fn fetch() -> int {
+	return 1;
+}
+async fn bad_borrow() -> int {
+	let s = "hello";
+	let r = &s;
+	let x = await fetch();
+	return x;
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if ok {
+		t.Fatal("expected error for borrow across await")
+	}
+	found := false
+	for _, err := range checker.Errors() {
+		if strings.Contains(err, "borrow") && strings.Contains(err, "await") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected 'borrow across await' error, got %v", checker.Errors())
+	}
+}
+
+func TestAsyncFnReturnType(t *testing.T) {
+	input := `
+async fn fetch() -> int {
+	return 42;
+}
+async fn caller() -> int {
+	let x = await fetch();
+	return x;
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+}

@@ -876,3 +876,132 @@ let f = fn() -> int { return x; };
 		t.Errorf("expected env struct with only captured x, got:\n%s", output)
 	}
 }
+
+func TestAsyncFnGeneratesFrameStruct(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+async fn fetch_data() -> int {
+	return 42;
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "fetch_data_frame") {
+		t.Errorf("expected frame struct typedef, got:\n%s", output)
+	}
+	if !strings.Contains(output, "__state") {
+		t.Errorf("expected __state field in frame struct, got:\n%s", output)
+	}
+	if !strings.Contains(output, "__result") {
+		t.Errorf("expected __result field in frame struct, got:\n%s", output)
+	}
+}
+
+func TestAsyncFnGeneratesPollFunction(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+async fn fetch_data() -> int {
+	return 42;
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "fetch_data_poll") {
+		t.Errorf("expected poll function, got:\n%s", output)
+	}
+	if !strings.Contains(output, "switch (f->__state)") {
+		t.Errorf("expected state machine switch, got:\n%s", output)
+	}
+}
+
+func TestAsyncFnGeneratesConstructor(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+async fn compute(x: int) -> int {
+	return x * 2;
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "compute_frame* compute(") {
+		t.Errorf("expected constructor returning frame pointer, got:\n%s", output)
+	}
+	if !strings.Contains(output, "f->__state = 0") {
+		t.Errorf("expected state initialization, got:\n%s", output)
+	}
+	if !strings.Contains(output, "f->x = x") {
+		t.Errorf("expected parameter copy to frame, got:\n%s", output)
+	}
+}
+
+func TestAsyncMainGeneratesEventLoop(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+async fn carv_main() -> int {
+	return 0;
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "carv_loop") {
+		t.Errorf("expected event loop struct, got:\n%s", output)
+	}
+	if !strings.Contains(output, "carv_loop_init") {
+		t.Errorf("expected carv_loop_init call, got:\n%s", output)
+	}
+	if !strings.Contains(output, "carv_loop_run") {
+		t.Errorf("expected carv_loop_run call, got:\n%s", output)
+	}
+}
+
+func TestEventLoopNotEmittedWithoutAsync(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+fn sync_func() -> int {
+	return 42;
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if strings.Contains(output, "carv_loop_run") {
+		t.Errorf("expected no event loop for sync code, got:\n%s", output)
+	}
+	if strings.Contains(output, "carv_task") {
+		t.Errorf("expected no carv_task for sync code, got:\n%s", output)
+	}
+}
