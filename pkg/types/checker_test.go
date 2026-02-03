@@ -242,3 +242,141 @@ fn give() -> string {
 		t.Fatalf("unexpected warning: %s", warnings[0])
 	}
 }
+
+func TestBorrowImmutableNoWarnings(t *testing.T) {
+	input := `
+let s = "hello";
+let r = &s;
+print(len(r));
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+	if len(checker.Warnings()) != 0 {
+		t.Fatalf("expected no warnings, got %v", checker.Warnings())
+	}
+}
+
+func TestBorrowDoubleImmutableNoWarnings(t *testing.T) {
+	input := `
+let s = "hello";
+let r1 = &s;
+let r2 = &s;
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+	if len(checker.Warnings()) != 0 {
+		t.Fatalf("expected no warnings, got %v", checker.Warnings())
+	}
+}
+
+func TestBorrowMutableBlocksImmutableWarning(t *testing.T) {
+	input := `
+let s = "hello";
+let r = &mut s;
+let r2 = &s;
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+	warnings := checker.Warnings()
+	if len(warnings) == 0 {
+		t.Fatalf("expected warning, got none")
+	}
+	found := false
+	for _, warning := range warnings {
+		if strings.Contains(warning, "cannot immutably borrow 's'") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected immutable borrow warning, got %v", warnings)
+	}
+}
+
+func TestBorrowMovedValueWarning(t *testing.T) {
+	input := `
+let s = "hello";
+let t = s;
+let r = &s;
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+	warnings := checker.Warnings()
+	if len(warnings) == 0 {
+		t.Fatalf("expected warning, got none")
+	}
+	found := false
+	for _, warning := range warnings {
+		if strings.Contains(warning, "cannot borrow moved value 's'") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected moved borrow warning, got %v", warnings)
+	}
+}
+
+func TestBorrowAssignWhileBorrowedWarning(t *testing.T) {
+	input := `
+mut s = "hello";
+let r = &s;
+s = "world";
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+	warnings := checker.Warnings()
+	if len(warnings) == 0 {
+		t.Fatalf("expected warning, got none")
+	}
+	found := false
+	for _, warning := range warnings {
+		if strings.Contains(warning, "cannot assign to 's' while it is borrowed") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected assign while borrowed warning, got %v", warnings)
+	}
+}

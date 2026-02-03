@@ -94,6 +94,8 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(lexer.TOKEN_BANG, p.parsePrefixExpression)
 	p.registerPrefix(lexer.TOKEN_MINUS, p.parsePrefixExpression)
 	p.registerPrefix(lexer.TOKEN_TILDE, p.parsePrefixExpression)
+	p.registerPrefix(lexer.TOKEN_AMPERSAND, p.parseBorrowExpression)
+	p.registerPrefix(lexer.TOKEN_STAR, p.parseDerefExpression)
 	p.registerPrefix(lexer.TOKEN_LPAREN, p.parseGroupedExpression)
 	p.registerPrefix(lexer.TOKEN_LBRACKET, p.parseArrayLiteral)
 	p.registerPrefix(lexer.TOKEN_IF, p.parseIfExpression)
@@ -1076,7 +1078,35 @@ func (p *Parser) parseNewExpression() ast.Expression {
 	return exp
 }
 
+func (p *Parser) parseBorrowExpression() ast.Expression {
+	expr := &ast.BorrowExpression{Token: p.curToken}
+	if p.peekTokenIs(lexer.TOKEN_MUT) {
+		expr.Mutable = true
+		p.nextToken()
+	}
+	p.nextToken()
+	expr.Value = p.parseExpression(PREFIX)
+	return expr
+}
+
+func (p *Parser) parseDerefExpression() ast.Expression {
+	expr := &ast.DerefExpression{Token: p.curToken}
+	p.nextToken()
+	expr.Value = p.parseExpression(PREFIX)
+	return expr
+}
+
 func (p *Parser) parseTypeExpr() ast.TypeExpr {
+	if p.curTokenIs(lexer.TOKEN_AMPERSAND) {
+		ref := &ast.RefType{Token: p.curToken}
+		p.nextToken()
+		if p.curTokenIs(lexer.TOKEN_MUT) {
+			ref.Mutable = true
+			p.nextToken()
+		}
+		ref.Inner = p.parseTypeExpr()
+		return ref
+	}
 	switch p.curToken.Type {
 	case lexer.TOKEN_INT_TYPE:
 		return &ast.BasicType{Token: p.curToken, Name: "int"}

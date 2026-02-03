@@ -125,6 +125,25 @@ func (m *MapType) Equals(other Type) bool {
 	return false
 }
 
+type RefType struct {
+	Inner   Type
+	Mutable bool
+}
+
+func (r *RefType) String() string {
+	if r.Mutable {
+		return "&mut " + r.Inner.String()
+	}
+	return "&" + r.Inner.String()
+}
+
+func (r *RefType) Equals(other Type) bool {
+	if o, ok := other.(*RefType); ok {
+		return r.Mutable == o.Mutable && r.Inner.Equals(o.Inner)
+	}
+	return false
+}
+
 type ModuleType struct {
 	Name    string
 	Exports map[string]Type
@@ -190,6 +209,8 @@ func Category(t Type) TypeCategory {
 	switch t.(type) {
 	case *ArrayType, *MapType, *ClassType:
 		return MoveType
+	case *RefType:
+		return CopyType
 	default:
 		return CopyType
 	}

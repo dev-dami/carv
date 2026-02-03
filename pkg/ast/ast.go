@@ -348,3 +348,22 @@ type BlockExpression struct {
 func (be *BlockExpression) expressionNode()      {}
 func (be *BlockExpression) TokenLiteral() string { return be.Token.Literal }
 func (be *BlockExpression) Pos() (int, int)      { return be.Token.Line, be.Token.Column }
+
+type BorrowExpression struct {
+	Token   lexer.Token
+	Mutable bool
+	Value   Expression
+}
+
+func (be *BorrowExpression) expressionNode()      {}
+func (be *BorrowExpression) TokenLiteral() string { return be.Token.Literal }
+func (be *BorrowExpression) Pos() (int, int)      { return be.Token.Line, be.Token.Column }
+
+type DerefExpression struct {
+	Token lexer.Token
+	Value Expression
+}
+
+func (de *DerefExpression) expressionNode()      {}
+func (de *DerefExpression) TokenLiteral() string { return de.Token.Literal }
+func (de *DerefExpression) Pos() (int, int)      { return de.Token.Line, de.Token.Column }
