@@ -88,8 +88,11 @@ fn add(a: int, b: int) -> int {
 	if !strings.Contains(output, "carv_int add(carv_int a, carv_int b)") {
 		t.Errorf("expected function declaration in output, got:\n%s", output)
 	}
-	if !strings.Contains(output, "return (a + b);") {
-		t.Errorf("expected return statement in output, got:\n%s", output)
+	if !strings.Contains(output, "__carv_retval = (a + b);") {
+		t.Errorf("expected return assignment in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "goto __carv_exit;") {
+		t.Errorf("expected single-exit goto in output, got:\n%s", output)
 	}
 }
 
@@ -274,6 +277,128 @@ func TestTypeToC(t *testing.T) {
 	}
 }
 
+func TestStringLiteralEmitsStructLit(t *testing.T) {
+	gen := NewCGenerator()
+	input := `let s = "hello";`
+
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, `carv_string_lit("hello")`) {
+		t.Errorf("expected carv_string_lit for string literal, got:\n%s", output)
+	}
+	if !strings.Contains(output, "carv_string s =") {
+		t.Errorf("expected carv_string type for string var, got:\n%s", output)
+	}
+}
+
+func TestFunctionSingleExit(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+fn greet(name: string) -> string {
+    return name;
+}
+`
+
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "__carv_exit:") {
+		t.Errorf("expected __carv_exit label, got:\n%s", output)
+	}
+	if !strings.Contains(output, "__carv_retval") {
+		t.Errorf("expected __carv_retval variable, got:\n%s", output)
+	}
+	if !strings.Contains(output, "goto __carv_exit;") {
+		t.Errorf("expected goto __carv_exit, got:\n%s", output)
+	}
+}
+
+func TestStringStructTypedef(t *testing.T) {
+	gen := NewCGenerator()
+	input := ""
+
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "typedef struct { char* data; size_t len; bool owned; } carv_string;") {
+		t.Errorf("expected carv_string struct typedef, got:\n%s", output)
+	}
+	if !strings.Contains(output, "carv_string_lit") {
+		t.Errorf("expected carv_string_lit helper, got:\n%s", output)
+	}
+	if !strings.Contains(output, "carv_string_clone") {
+		t.Errorf("expected carv_string_clone helper, got:\n%s", output)
+	}
+	if !strings.Contains(output, "carv_string_drop") {
+		t.Errorf("expected carv_string_drop helper, got:\n%s", output)
+	}
+}
+
+func TestCloneBuiltin(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+fn test() {
+    let s = "hello";
+    let t = clone(s);
+}
+`
+
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "carv_string_clone") {
+		t.Errorf("expected carv_string_clone call for clone(), got:\n%s", output)
+	}
+}
+
+func TestScopeDropsEmitted(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+fn test() {
+    let s = "hello";
+}
+`
+
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "carv_string_drop(&s)") {
+		t.Errorf("expected carv_string_drop for owned string at scope exit, got:\n%s", output)
+	}
+}
+
 func TestZeroValue(t *testing.T) {
 	gen := NewCGenerator()
 
@@ -284,7 +409,7 @@ func TestZeroValue(t *testing.T) {
 		{"carv_int", "0"},
 		{"carv_float", "0.0"},
 		{"carv_bool", "false"},
-		{"carv_string", "NULL"},
+		{"carv_string", "(carv_string){NULL, 0, false}"},
 		{"unknown", "0"},
 	}
 
