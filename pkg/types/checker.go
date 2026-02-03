@@ -6,8 +6,25 @@ import (
 	"github.com/dev-dami/carv/pkg/ast"
 )
 
+// OwnershipState tracks whether a variable's value has been moved
+type OwnershipState int
+
+const (
+	Owned OwnershipState = iota // variable holds its value
+	Moved                       // value has been moved to another binding
+)
+
+// VarOwnership tracks ownership metadata for a variable
+type VarOwnership struct {
+	State   OwnershipState
+	MovedAt int    // line number where the move occurred
+	MovedTo string // what it was moved to (variable name or "function call")
+}
+
 type Checker struct {
 	errors    []string
+	warnings  []string
+	ownership map[string]*VarOwnership
 	scope     *Scope
 	nodeTypes map[ast.Expression]Type
 }
@@ -38,6 +55,8 @@ func (s *Scope) Lookup(name string) (Type, bool) {
 func NewChecker() *Checker {
 	c := &Checker{
 		errors:    []string{},
+		warnings:  []string{},
+		ownership: make(map[string]*VarOwnership),
 		scope:     NewScope(nil),
 		nodeTypes: make(map[ast.Expression]Type),
 	}
@@ -106,9 +125,48 @@ func (c *Checker) Errors() []string {
 	return c.errors
 }
 
+func (c *Checker) Warnings() []string {
+	return c.warnings
+}
+
 func (c *Checker) error(line, col int, format string, args ...interface{}) {
 	msg := fmt.Sprintf("type error at %d:%d: %s", line, col, fmt.Sprintf(format, args...))
 	c.errors = append(c.errors, msg)
+}
+
+func (c *Checker) warning(line, col int, format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	c.warnings = append(c.warnings, fmt.Sprintf("warning at line %d, col %d: %s", line, col, msg))
+}
+
+func (c *Checker) pushOwnership() map[string]*VarOwnership {
+	prev := c.ownership
+	next := make(map[string]*VarOwnership, len(prev))
+	for name, ownership := range prev {
+		next[name] = ownership
+	}
+	c.ownership = next
+	return prev
+}
+
+func (c *Checker) popOwnership(prev map[string]*VarOwnership) {
+	c.ownership = prev
+}
+
+func (c *Checker) trackOwnership(name string, t Type) {
+	if IsMoveType(t) {
+		c.ownership[name] = &VarOwnership{State: Owned}
+		return
+	}
+	delete(c.ownership, name)
+}
+
+func (c *Checker) markMoved(name string, line int, movedTo string) {
+	if own, exists := c.ownership[name]; exists && own.State == Owned {
+		own.State = Moved
+		own.MovedAt = line
+		own.MovedTo = movedTo
+	}
 }
 
 func (c *Checker) Check(program *ast.Program) bool {
@@ -151,6 +209,8 @@ func (c *Checker) checkLetStatement(s *ast.LetStatement) {
 		return
 	}
 
+	boundType := valType
+
 	if s.Type != nil {
 		declType := c.resolveTypeExpr(s.Type)
 		if declType != nil && !c.isAssignable(declType, valType) {
@@ -158,8 +218,18 @@ func (c *Checker) checkLetStatement(s *ast.LetStatement) {
 			c.error(line, col, "cannot assign %s to %s", valType.String(), declType.String())
 		}
 		c.scope.Define(s.Name.Value, declType)
+		boundType = declType
 	} else {
 		c.scope.Define(s.Name.Value, valType)
+	}
+
+	c.trackOwnership(s.Name.Value, boundType)
+
+	if IsMoveType(valType) {
+		if ident, ok := s.Value.(*ast.Identifier); ok {
+			line, _ := s.Pos()
+			c.markMoved(ident.Value, line, s.Name.Value)
+		}
 	}
 }
 
@@ -169,6 +239,8 @@ func (c *Checker) checkConstStatement(s *ast.ConstStatement) {
 		return
 	}
 
+	boundType := valType
+
 	if s.Type != nil {
 		declType := c.resolveTypeExpr(s.Type)
 		if declType != nil && !c.isAssignable(declType, valType) {
@@ -176,8 +248,18 @@ func (c *Checker) checkConstStatement(s *ast.ConstStatement) {
 			c.error(line, col, "cannot assign %s to %s", valType.String(), declType.String())
 		}
 		c.scope.Define(s.Name.Value, declType)
+		boundType = declType
 	} else {
 		c.scope.Define(s.Name.Value, valType)
+	}
+
+	c.trackOwnership(s.Name.Value, boundType)
+
+	if IsMoveType(valType) {
+		if ident, ok := s.Value.(*ast.Identifier); ok {
+			line, _ := s.Pos()
+			c.markMoved(ident.Value, line, s.Name.Value)
+		}
 	}
 }
 
@@ -200,24 +282,34 @@ func (c *Checker) checkFunctionStatement(s *ast.FunctionStatement) {
 	c.scope.Define(s.Name.Value, fnType)
 
 	prevScope := c.scope
+	prevOwnership := c.pushOwnership()
 	c.scope = NewScope(prevScope)
 
 	for i, p := range s.Parameters {
 		c.scope.Define(p.Name.Value, paramTypes[i])
+		c.trackOwnership(p.Name.Value, paramTypes[i])
 	}
 
 	c.checkBlockStatement(s.Body)
 	c.scope = prevScope
+	c.popOwnership(prevOwnership)
 }
 
 func (c *Checker) checkReturnStatement(s *ast.ReturnStatement) {
 	if s.ReturnValue != nil {
-		c.checkExpression(s.ReturnValue)
+		retType := c.checkExpression(s.ReturnValue)
+		if IsMoveType(retType) {
+			if ident, ok := s.ReturnValue.(*ast.Identifier); ok {
+				line, _ := s.ReturnValue.Pos()
+				c.markMoved(ident.Value, line, "return")
+			}
+		}
 	}
 }
 
 func (c *Checker) checkForStatement(s *ast.ForStatement) {
 	prevScope := c.scope
+	prevOwnership := c.pushOwnership()
 	c.scope = NewScope(prevScope)
 
 	if s.Init != nil {
@@ -236,22 +328,27 @@ func (c *Checker) checkForStatement(s *ast.ForStatement) {
 	c.checkBlockStatement(s.Body)
 
 	c.scope = prevScope
+	c.popOwnership(prevOwnership)
 }
 
 func (c *Checker) checkForInStatement(s *ast.ForInStatement) {
 	iterType := c.checkExpression(s.Iterable)
 
 	prevScope := c.scope
+	prevOwnership := c.pushOwnership()
 	c.scope = NewScope(prevScope)
 
 	if arr, ok := iterType.(*ArrayType); ok {
 		c.scope.Define(s.Value.Value, arr.Element)
+		c.trackOwnership(s.Value.Value, arr.Element)
 	} else {
 		c.scope.Define(s.Value.Value, Any)
+		c.trackOwnership(s.Value.Value, Any)
 	}
 
 	c.checkBlockStatement(s.Body)
 	c.scope = prevScope
+	c.popOwnership(prevOwnership)
 }
 
 func (c *Checker) checkWhileStatement(s *ast.WhileStatement) {
@@ -346,6 +443,10 @@ func (c *Checker) checkIdentifier(e *ast.Identifier) Type {
 		line, col := e.Pos()
 		c.error(line, col, "undefined: %s", e.Value)
 		return Any
+	}
+	if own, exists := c.ownership[e.Value]; exists && own.State == Moved {
+		line, col := e.Pos()
+		c.warning(line, col, "use of moved value '%s' (moved at line %d)", e.Value, own.MovedAt)
 	}
 	return t
 }
@@ -500,6 +601,13 @@ func (c *Checker) checkCallExpression(e *ast.CallExpression) Type {
 			if !paramType.Equals(Any) && !c.isAssignable(paramType, argType) {
 				line, col := arg.Pos()
 				c.error(line, col, "argument %d: cannot pass %s as %s", i+1, argType.String(), paramType.String())
+			}
+		}
+
+		if IsMoveType(argType) {
+			if ident, ok := arg.(*ast.Identifier); ok {
+				line, _ := arg.Pos()
+				c.markMoved(ident.Value, line, "function call")
 			}
 		}
 	}
