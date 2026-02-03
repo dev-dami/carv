@@ -786,6 +786,24 @@ func (c *Checker) checkFunctionLiteral(e *ast.FunctionLiteral) Type {
 		retType = c.resolveTypeExpr(e.ReturnType)
 	}
 
+	prevScope := c.scope
+	prevOwnership := c.pushOwnership()
+	prevBorrows := c.pushBorrows()
+	c.scope = NewScope(prevScope)
+
+	for i, p := range e.Parameters {
+		c.scope.Define(p.Name.Value, paramTypes[i])
+		c.trackOwnership(p.Name.Value, paramTypes[i])
+	}
+
+	if e.Body != nil {
+		c.checkBlockStatement(e.Body)
+	}
+
+	c.scope = prevScope
+	c.popOwnership(prevOwnership)
+	c.popBorrows(prevBorrows)
+
 	return &FunctionType{Params: paramTypes, Return: retType}
 }
 

@@ -751,3 +751,128 @@ impl Mixed for Doc {
 		t.Errorf("expected void* self for write, got:\n%s", output)
 	}
 }
+
+func TestClosureCapturingInt(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+let x = 10;
+let f = fn(y: int) -> int { return x + y; };
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "__closure_0_env") {
+		t.Errorf("expected env struct typedef, got:\n%s", output)
+	}
+	if !strings.Contains(output, "carv_int x;") {
+		t.Errorf("expected captured int x in env struct, got:\n%s", output)
+	}
+	if !strings.Contains(output, "static carv_int __closure_0_fn") {
+		t.Errorf("expected lambda-lifted function, got:\n%s", output)
+	}
+	if !strings.Contains(output, "__env->x") {
+		t.Errorf("expected captured var accessed via __env->x, got:\n%s", output)
+	}
+	if !strings.Contains(output, "carv_arena_alloc") {
+		t.Errorf("expected arena allocation for env, got:\n%s", output)
+	}
+}
+
+func TestClosureCapturingString(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+let s = "hello";
+let f = fn() -> string { return s; };
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "carv_string s;") {
+		t.Errorf("expected captured string s in env struct, got:\n%s", output)
+	}
+	if !strings.Contains(output, "carv_string_move") {
+		t.Errorf("expected string move for MoveType capture, got:\n%s", output)
+	}
+}
+
+func TestClosureCall(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+let x = 10;
+let f = fn(y: int) -> int { return x + y; };
+let result = f(5);
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, ".fn_ptr(") {
+		t.Errorf("expected fat pointer dispatch via .fn_ptr(, got:\n%s", output)
+	}
+	if !strings.Contains(output, ".env") {
+		t.Errorf("expected .env passed to fn_ptr, got:\n%s", output)
+	}
+}
+
+func TestNonCapturingClosure(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+let f = fn(a: int, b: int) -> int { return a + b; };
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "__closure_0_env") {
+		t.Errorf("expected env struct even for non-capturing closure, got:\n%s", output)
+	}
+	if !strings.Contains(output, "__closure_0_fn") {
+		t.Errorf("expected lifted function, got:\n%s", output)
+	}
+	if !strings.Contains(output, "__closure_0") {
+		t.Errorf("expected closure value type, got:\n%s", output)
+	}
+}
+
+func TestClosureEnvStructFields(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+let x = 10;
+let y = 3.14;
+let f = fn() -> int { return x; };
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "typedef struct { carv_int x; } __closure_0_env;") {
+		t.Errorf("expected env struct with only captured x, got:\n%s", output)
+	}
+}

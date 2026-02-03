@@ -30,19 +30,28 @@ type implInfo struct {
 	methods   []*ast.MethodDecl
 }
 
+type capturedVar struct {
+	Name  string
+	CType string
+}
+
 type CGenerator struct {
-	output        strings.Builder
-	indent        int
-	tempCounter   int
-	arrayLengths  map[string]int
-	scope         *cgenScope
-	fnReturnTypes map[string]string
-	typeInfo      map[ast.Expression]types.Type
-	preamble      []string
-	inFunction    bool
-	funcRetType   string
-	interfaces    map[string]*interfaceInfo
-	implList      []*implInfo
+	output          strings.Builder
+	indent          int
+	tempCounter     int
+	arrayLengths    map[string]int
+	scope           *cgenScope
+	fnReturnTypes   map[string]string
+	typeInfo        map[ast.Expression]types.Type
+	preamble        []string
+	inFunction      bool
+	funcRetType     string
+	interfaces      map[string]*interfaceInfo
+	implList        []*implInfo
+	closureCounter  int
+	closureDefs     []string
+	captureMap      map[string]string // varName -> "__env->varName" during closure function generation
+	lastClosureType string
 }
 
 func NewCGenerator() *CGenerator {
@@ -53,6 +62,12 @@ func NewCGenerator() *CGenerator {
 	}
 	g.scope = newScope(nil)
 	return g
+}
+
+func (g *CGenerator) nextClosureID() int {
+	id := g.closureCounter
+	g.closureCounter++
+	return id
 }
 
 func (g *CGenerator) SetTypeInfo(info map[ast.Expression]types.Type) {
@@ -273,6 +288,9 @@ func (g *CGenerator) Generate(program *ast.Program) string {
 	g.generateImplMethods(program)
 	g.generateImplWrappers()
 
+	preMainOutput := g.output.String()
+	g.output.Reset()
+
 	g.writeln("")
 	g.writeln("int main(void) {")
 	g.indent++
@@ -290,6 +308,15 @@ func (g *CGenerator) Generate(program *ast.Program) string {
 	g.writeln("return 0;")
 	g.indent--
 	g.writeln("}")
+
+	mainBody := g.output.String()
+	g.output.Reset()
+
+	g.output.WriteString(preMainOutput)
+	for _, def := range g.closureDefs {
+		g.writeln(def)
+	}
+	g.output.WriteString(mainBody)
 
 	return g.output.String()
 }
@@ -721,6 +748,219 @@ func (g *CGenerator) generateFunction(fn *ast.FunctionStatement) {
 	g.writeln("")
 }
 
+func (g *CGenerator) analyzeCaptured(fn *ast.FunctionLiteral) []capturedVar {
+	paramSet := make(map[string]bool)
+	for _, p := range fn.Parameters {
+		paramSet[p.Name.Value] = true
+	}
+
+	seen := make(map[string]bool)
+	var captures []capturedVar
+	g.walkForCaptures(fn.Body, paramSet, seen, &captures)
+	return captures
+}
+
+func (g *CGenerator) walkForCaptures(node ast.Node, params map[string]bool, seen map[string]bool, captures *[]capturedVar) {
+	if node == nil {
+		return
+	}
+	switch n := node.(type) {
+	case *ast.Identifier:
+		name := n.Value
+		if params[name] || seen[name] {
+			return
+		}
+		if v := g.lookupVar(name); v != nil {
+			seen[name] = true
+			*captures = append(*captures, capturedVar{Name: name, CType: v.CType})
+		}
+	case *ast.BlockStatement:
+		for _, stmt := range n.Statements {
+			g.walkForCaptures(stmt, params, seen, captures)
+		}
+	case *ast.LetStatement:
+		g.walkForCaptures(n.Value, params, seen, captures)
+	case *ast.ConstStatement:
+		g.walkForCaptures(n.Value, params, seen, captures)
+	case *ast.ReturnStatement:
+		if n.ReturnValue != nil {
+			g.walkForCaptures(n.ReturnValue, params, seen, captures)
+		}
+	case *ast.ExpressionStatement:
+		g.walkForCaptures(n.Expression, params, seen, captures)
+	case *ast.ForStatement:
+		g.walkForCaptures(n.Init, params, seen, captures)
+		g.walkForCaptures(n.Condition, params, seen, captures)
+		g.walkForCaptures(n.Post, params, seen, captures)
+		g.walkForCaptures(n.Body, params, seen, captures)
+	case *ast.ForInStatement:
+		g.walkForCaptures(n.Iterable, params, seen, captures)
+		g.walkForCaptures(n.Body, params, seen, captures)
+	case *ast.WhileStatement:
+		g.walkForCaptures(n.Condition, params, seen, captures)
+		g.walkForCaptures(n.Body, params, seen, captures)
+	case *ast.InfixExpression:
+		g.walkForCaptures(n.Left, params, seen, captures)
+		g.walkForCaptures(n.Right, params, seen, captures)
+	case *ast.PrefixExpression:
+		g.walkForCaptures(n.Right, params, seen, captures)
+	case *ast.CallExpression:
+		g.walkForCaptures(n.Function, params, seen, captures)
+		for _, arg := range n.Arguments {
+			g.walkForCaptures(arg, params, seen, captures)
+		}
+	case *ast.MemberExpression:
+		g.walkForCaptures(n.Object, params, seen, captures)
+	case *ast.IndexExpression:
+		g.walkForCaptures(n.Left, params, seen, captures)
+		g.walkForCaptures(n.Index, params, seen, captures)
+	case *ast.AssignExpression:
+		g.walkForCaptures(n.Left, params, seen, captures)
+		g.walkForCaptures(n.Right, params, seen, captures)
+	case *ast.IfExpression:
+		g.walkForCaptures(n.Condition, params, seen, captures)
+		g.walkForCaptures(n.Consequence, params, seen, captures)
+		g.walkForCaptures(n.Alternative, params, seen, captures)
+	case *ast.PipeExpression:
+		g.walkForCaptures(n.Left, params, seen, captures)
+		g.walkForCaptures(n.Right, params, seen, captures)
+	case *ast.ArrayLiteral:
+		for _, elem := range n.Elements {
+			g.walkForCaptures(elem, params, seen, captures)
+		}
+	case *ast.BorrowExpression:
+		g.walkForCaptures(n.Value, params, seen, captures)
+	case *ast.DerefExpression:
+		g.walkForCaptures(n.Value, params, seen, captures)
+	case *ast.FunctionLiteral:
+		// Don't descend into nested closures
+	}
+}
+
+func (g *CGenerator) generateClosureExpression(fn *ast.FunctionLiteral) string {
+	id := g.nextClosureID()
+	captures := g.analyzeCaptured(fn)
+
+	envName := fmt.Sprintf("__closure_%d_env", id)
+	fnName := fmt.Sprintf("__closure_%d_fn", id)
+	closureType := fmt.Sprintf("__closure_%d", id)
+
+	retType := g.closureReturnType(fn)
+	paramTypes := g.closureParamTypes(fn)
+
+	// Emit env struct
+	var envDef strings.Builder
+	envDef.WriteString(fmt.Sprintf("typedef struct { "))
+	for _, c := range captures {
+		envDef.WriteString(fmt.Sprintf("%s %s; ", c.CType, c.Name))
+	}
+	envDef.WriteString(fmt.Sprintf("} %s;", envName))
+	g.closureDefs = append(g.closureDefs, envDef.String())
+
+	// Emit fn_ptr typedef (fat pointer)
+	var fnPtrSig strings.Builder
+	fnPtrSig.WriteString("void*")
+	for _, pt := range paramTypes {
+		fnPtrSig.WriteString(", " + pt)
+	}
+	closureTypeDef := fmt.Sprintf("typedef struct { void* env; %s (*fn_ptr)(%s); } %s;",
+		retType, fnPtrSig.String(), closureType)
+	g.closureDefs = append(g.closureDefs, closureTypeDef)
+
+	// Emit lambda-lifted function
+	var liftedFn strings.Builder
+	liftedFn.WriteString(fmt.Sprintf("static %s %s(%s* __env", retType, fnName, envName))
+	for _, p := range fn.Parameters {
+		pType := g.typeToC(p.Type)
+		liftedFn.WriteString(fmt.Sprintf(", %s %s", pType, p.Name.Value))
+	}
+	liftedFn.WriteString(") {\n")
+
+	oldOutput := g.output
+	oldIndent := g.indent
+	oldInFunction := g.inFunction
+	oldFuncRetType := g.funcRetType
+	oldCaptureMap := g.captureMap
+
+	g.output = strings.Builder{}
+	g.indent = 1
+	g.inFunction = true
+	g.funcRetType = retType
+	g.enterScope()
+
+	g.captureMap = make(map[string]string)
+	for _, c := range captures {
+		g.captureMap[c.Name] = fmt.Sprintf("__env->%s", c.Name)
+	}
+	for _, p := range fn.Parameters {
+		pType := g.typeToC(p.Type)
+		g.declareVar(p.Name.Value, pType, p.Mutable, false)
+	}
+
+	if retType != "void" {
+		g.writeln(fmt.Sprintf("%s __carv_retval = %s;", retType, g.zeroValue(retType)))
+	}
+
+	for _, stmt := range fn.Body.Statements {
+		g.generateStatement(stmt)
+	}
+
+	g.writeln("__carv_exit:;")
+	g.emitScopeDrops()
+	if retType != "void" {
+		g.writeln("return __carv_retval;")
+	}
+
+	g.exitScope()
+	g.captureMap = oldCaptureMap
+
+	liftedFn.WriteString(g.output.String())
+	liftedFn.WriteString("}\n")
+	g.closureDefs = append(g.closureDefs, liftedFn.String())
+
+	g.output = oldOutput
+	g.indent = oldIndent
+	g.inFunction = oldInFunction
+	g.funcRetType = oldFuncRetType
+
+	// At call site: allocate env, populate, build closure struct
+	envVar := fmt.Sprintf("__env_%d", id)
+	clVar := fmt.Sprintf("__cl_%d", id)
+
+	g.writeln(fmt.Sprintf("%s* %s = (%s*)carv_arena_alloc(sizeof(%s));", envName, envVar, envName, envName))
+	for _, c := range captures {
+		if g.isMoveType(c.CType) {
+			g.writeln(fmt.Sprintf("%s->%s = carv_string_move(&%s);", envVar, c.Name, c.Name))
+		} else {
+			g.writeln(fmt.Sprintf("%s->%s = %s;", envVar, c.Name, g.safeName(c.Name)))
+		}
+	}
+	g.writeln(fmt.Sprintf("%s %s = { .env = %s, .fn_ptr = %s };", closureType, clVar, envVar, fnName))
+	g.declareVar(clVar, closureType, false, false)
+	g.lastClosureType = closureType
+
+	return clVar
+}
+
+func (g *CGenerator) closureReturnType(fn *ast.FunctionLiteral) string {
+	if fn.ReturnType != nil {
+		return g.typeToC(fn.ReturnType)
+	}
+	return "void"
+}
+
+func (g *CGenerator) closureParamTypes(fn *ast.FunctionLiteral) []string {
+	var pts []string
+	for _, p := range fn.Parameters {
+		pts = append(pts, g.typeToC(p.Type))
+	}
+	return pts
+}
+
+func (g *CGenerator) isMoveType(ctype string) bool {
+	return ctype == "carv_string" || strings.HasSuffix(ctype, "_array") || strings.HasSuffix(ctype, "*")
+}
+
 func (g *CGenerator) generateClassDecl(cls *ast.ClassStatement) {
 	className := cls.Name.Value
 	g.writeln(fmt.Sprintf("typedef struct %s %s;", className, className))
@@ -860,8 +1100,13 @@ func (g *CGenerator) generateStatement(stmt ast.Statement) {
 func (g *CGenerator) generateLetStatement(s *ast.LetStatement) {
 	varType := g.inferType(s.Value)
 	varName := s.Name.Value
+	g.lastClosureType = ""
 	value := g.generateExpression(s.Value)
 	g.flushPreamble()
+
+	if g.lastClosureType != "" {
+		varType = g.lastClosureType
+	}
 
 	if arr, ok := s.Value.(*ast.ArrayLiteral); ok {
 		varType = g.getArrayType(g.inferArrayElemType(s.Value))
@@ -1055,6 +1300,11 @@ func (g *CGenerator) generateExpression(expr ast.Expression) string {
 	case *ast.NilLiteral:
 		return "NULL"
 	case *ast.Identifier:
+		if g.captureMap != nil {
+			if mapped, ok := g.captureMap[e.Value]; ok {
+				return mapped
+			}
+		}
 		return g.safeName(e.Value)
 	case *ast.ArrayLiteral:
 		return g.generateArrayLiteral(e)
@@ -1094,6 +1344,8 @@ func (g *CGenerator) generateExpression(expr ast.Expression) string {
 		return "(*" + inner + ")"
 	case *ast.CastExpression:
 		return g.generateCastExpression(e)
+	case *ast.FunctionLiteral:
+		return g.generateClosureExpression(e)
 	}
 	return ""
 }
@@ -1126,12 +1378,22 @@ func (g *CGenerator) generatePipeExpression(e *ast.PipeExpression) string {
 		if fnName == "print" || fnName == "println" {
 			return g.generatePrintExpr(left, leftType)
 		}
+		if varType := g.getVarType(right.Value); strings.HasPrefix(varType, "__closure_") {
+			return fmt.Sprintf("%s.fn_ptr(%s.env, %s)", fnName, fnName, left)
+		}
 		return fmt.Sprintf("%s(%s)", fnName, left)
 	case *ast.CallExpression:
 		if ident, ok := right.Function.(*ast.Identifier); ok {
 			fnName := g.safeName(ident.Value)
 			if fnName == "print" || fnName == "println" {
 				return g.generatePrintExpr(left, leftType)
+			}
+			if varType := g.getVarType(ident.Value); strings.HasPrefix(varType, "__closure_") {
+				args := []string{fnName + ".env", left}
+				for _, arg := range right.Arguments {
+					args = append(args, g.generateExpression(arg))
+				}
+				return fmt.Sprintf("%s.fn_ptr(%s)", fnName, strings.Join(args, ", "))
 			}
 			args := []string{left}
 			for _, arg := range right.Arguments {
@@ -1256,6 +1518,18 @@ func (g *CGenerator) generateCallExpression(e *ast.CallExpression) string {
 			end = g.generateExpression(e.Arguments[2])
 		}
 		return fmt.Sprintf("carv_substr(%s, %s, %s)", str, start, end)
+	}
+
+	if ident, ok := e.Function.(*ast.Identifier); ok {
+		if varType := g.getVarType(ident.Value); strings.HasPrefix(varType, "__closure_") {
+			clName := g.safeName(ident.Value)
+			var callArgs []string
+			callArgs = append(callArgs, clName+".env")
+			for _, arg := range e.Arguments {
+				callArgs = append(callArgs, g.generateExpression(arg))
+			}
+			return fmt.Sprintf("%s.fn_ptr(%s)", clName, strings.Join(callArgs, ", "))
+		}
 	}
 
 	var args []string

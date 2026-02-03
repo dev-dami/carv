@@ -596,3 +596,56 @@ w.write(1);
 		t.Fatalf("expected immutable interface dispatch error, got %v", checker.Errors())
 	}
 }
+
+func TestFunctionLiteralBodyTypeCheck(t *testing.T) {
+	input := `
+let f = fn(x: int) -> int {
+	let y: string = x;
+	return y;
+};
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	checker := NewChecker()
+	checker.Check(program)
+
+	if len(checker.Errors()) == 0 {
+		t.Fatalf("expected type error inside function literal body, got none")
+	}
+	found := false
+	for _, err := range checker.Errors() {
+		if strings.Contains(err, "cannot assign") || strings.Contains(err, "type mismatch") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected type error inside function literal body, got: %v", checker.Errors())
+	}
+}
+
+func TestFunctionLiteralBodyNoError(t *testing.T) {
+	input := `
+let f = fn(x: int) -> int {
+	return x + 1;
+};
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	checker := NewChecker()
+	checker.Check(program)
+
+	for _, err := range checker.Errors() {
+		t.Errorf("unexpected error: %s", err)
+	}
+}
