@@ -23,29 +23,20 @@ This document specifies the full design for three new language systems before an
 
 ## Implementation Phases
 
-```
-Phase 0: Foundation (type info plumbing)
-    │
-    ├── Phase 1a: Ownership Core (move + drop)
-    │       │
-    │       ├── Phase 1b: Borrowing (&T / &mut T)
-    │       │
-    │       └── Phase 1c: Interfaces (parse + check + vtable codegen)
-    │               │
-    │               └── Phase 2: Interface + Ownership Integration
-    │                       │
-    │                       ├── Phase 3a: Closures in Codegen
-    │                       │       │
-    │                       │       └── Phase 3b: Async Core (state machines + event loop)
-    │                       │               │
-    │                       │               └── Phase 4: TCP/HTTP
-    │                       │
-    │                       └── (1a, 1b, 1c can partially overlap)
-```
+- **Phase 0**: Foundation (type info plumbing) — ✅ DONE
+- **Phase 1a**: Ownership Core (move + drop) — ✅ DONE
+- **Phase 1b**: Borrowing (&T / &mut T) — ✅ DONE
+- **Phase 1c**: Interfaces (parse + check + vtable codegen) — Next
+- **Phase 2**: Interface + Ownership Integration
+- **Phase 3a**: Closures in Codegen
+- **Phase 3b**: Async Core (state machines + event loop)
+- **Phase 4**: TCP/HTTP
 
 ---
 
 ## Phase 0: Foundation — Type Info Plumbing
+
+✅ **Implemented**
 
 **Problem**: The C codegen (`pkg/codegen/cgen.go`) has its own `inferExprType()` that is completely disconnected from the type checker (`pkg/types/checker.go`). Ownership metadata has no path from checker to codegen.
 
@@ -80,6 +71,8 @@ type CheckResult struct {
 ---
 
 ## Phase 1a: Ownership Core — Move + Drop
+
+✅ **Implemented**
 
 ### Type Categories
 
@@ -160,32 +153,40 @@ error at line 8: use of moved value 'a' (moved into function 'consume' at line 7
 **Runtime types** (emitted in C preamble):
 
 ```c
-typedef struct { size_t len; char* data; } carv_string;
+typedef struct { char* data; size_t len; bool owned; } carv_string;
 
-static carv_string carv_string_from_cstr(const char* s) {
+static carv_string carv_string_lit(const char* s) {
     size_t len = strlen(s);
-    char* data = malloc(len + 1);
+    return (carv_string){(char*)s, len, false};
+}
+
+static carv_string carv_string_own(const char* s) {
+    size_t len = strlen(s);
+    char* data = arena_alloc(len + 1);
     memcpy(data, s, len + 1);
-    return (carv_string){len, data};
+    return (carv_string){data, len, true};
 }
 
 static carv_string carv_string_clone(const carv_string* s) {
-    char* data = malloc(s->len + 1);
+    char* data = arena_alloc(s->len + 1);
     memcpy(data, s->data, s->len + 1);
-    return (carv_string){s->len, data};
+    return (carv_string){data, s->len, true};
 }
 
 static carv_string carv_string_move(carv_string* s) {
     carv_string out = *s;
     s->data = NULL;
     s->len = 0;
+    s->owned = false;
     return out;
 }
 
 static void carv_string_drop(carv_string* s) {
-    if (s->data) { free(s->data); s->data = NULL; s->len = 0; }
+    if (s->owned && s->data) { s->data = NULL; s->len = 0; s->owned = false; }
 }
 ```
+
+Note: Uses arena allocator (not malloc/free) for owned strings.
 
 **Single-exit functions** (all returns become `goto __carv_exit`):
 
@@ -236,6 +237,8 @@ carv_string b = carv_string_clone(&a);
 ---
 
 ## Phase 1b: Borrowing — &T / &mut T
+
+✅ **Implemented**
 
 ### Carv Syntax
 
@@ -728,11 +731,10 @@ async fn main() {
 
 | Risk | Severity | Mitigation |
 |------|----------|------------|
-| Codegen ignores checker output | CRITICAL | Phase 0 MUST be done first — bridge checker→codegen |
 | `Any` type bypasses ownership | CRITICAL | Define: `Any` treated as Move type, ownership rules still apply |
 | Drop on all control flow paths | HIGH | Single-exit pattern (`goto __carv_exit`) for all functions |
 | `self` receiver backward compat | HIGH | Default existing methods to `&mut self`; no breaking change |
-| Arena allocator vs malloc/free | HIGH | Dual strategy: arena for temporaries, malloc for owned heap values |
+| Arena allocator for owned values | HIGH | Arena allocator used for all owned heap values |
 | `?` operator + drops | MEDIUM | Emit drop code before the early-return goto |
 | Pipe operator + moves | MEDIUM | Pipes borrow by default (pass `&` implicitly) |
 | Closures capture ownership | MEDIUM | Copy types by copy, Move types by move, borrows forbidden |

@@ -29,6 +29,8 @@ Features that actually work:
 - `for-in` loops over arrays, strings, and maps
 - **Module system** with `require` (Rust-inspired, package manager ready)
 - **String interpolation** with `f"hello {name}"`
+- **Ownership system** (move semantics, `clone()` for deep copy)
+- **Borrowing** (`&T` / `&mut T`)
 - Project config via `carv.toml`
 - 40+ built-in functions (strings, files, process, environment, etc.)
 
@@ -44,6 +46,18 @@ println(f"2 + 2 = {2 + 2}");
 
 // pipes make everything nicer
 10 |> double |> add(5) |> print;
+
+// ownership: move semantics
+let s = "hello";
+let t = s;              // s is moved, now invalid
+let u = s.clone();      // explicit deep copy
+
+// borrowing: safe references
+fn print_len(s: &string) -> int {
+    return len(s);
+}
+let msg = "world";
+print_len(&msg);        // immutable borrow
 
 // error handling without exceptions
 fn divide(a: int, b: int) {
@@ -109,7 +123,11 @@ Then:
 - [x] Result types, classes, maps
 - [x] Module system (`require`)
 - [x] String interpolation (`f"..."`)
+- [x] Ownership system (move + drop)
+- [x] Borrowing (&T / &mut T)
 - [x] Project config (`carv.toml`)
+- [ ] Interfaces (interface/impl)
+- [ ] Async/await
 - [ ] Package manager
 - [ ] Self-hosting
 
