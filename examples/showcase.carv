@@ -1,8 +1,8 @@
-// Advanced Carv features - classes, result types, maps, string interpolation
+// Advanced Carv features - classes, result types, maps, string interpolation, ownership
 
 // String interpolation
 let name = "Carv";
-let version = "0.1.0";
+let version = "0.3.0";
 println(f"Welcome to {name} v{version}!");
 
 let x = 42;
@@ -80,3 +80,23 @@ if has_key(scores, "bob") {
 
 let updated = set(scores, "dave", 88);
 println(f"after adding dave: {updated}");
+
+// Ownership - move semantics
+let greeting = "hello";
+let moved = greeting;     // greeting moved to moved
+// print(greeting);       // ERROR: use of moved value 'greeting'
+println(f"moved: {moved}");
+
+// clone() for explicit deep copy
+let original = "world";
+let copy = original.clone();
+println(f"original: {original}, copy: {copy}");  // both valid
+
+// Borrowing
+fn print_len(s: &string) -> int {
+    return len(s);
+}
+
+let msg = "borrowing works!";
+let n = print_len(&msg);
+println(f"'{msg}' has length {n}");  // msg still valid after borrow
