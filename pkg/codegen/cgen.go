@@ -774,13 +774,19 @@ func (g *CGenerator) generateClassMethodDecls(cls *ast.ClassStatement) {
 	className := cls.Name.Value
 	for _, method := range cls.Methods {
 		retType := g.typeToC(method.ReturnType)
-		params := g.methodParamsToC(className, method.Parameters)
+		params := g.methodParamsToC(className, method.Receiver, method.Parameters)
 		g.writeln(fmt.Sprintf("%s %s_%s(%s);", retType, className, method.Name.Value, params))
 	}
 }
 
-func (g *CGenerator) methodParamsToC(className string, params []*ast.Parameter) string {
-	parts := []string{fmt.Sprintf("%s* self", className)}
+func (g *CGenerator) methodParamsToC(className string, recv ast.ReceiverKind, params []*ast.Parameter) string {
+	parts := []string{}
+	switch recv {
+	case ast.RecvRef:
+		parts = append(parts, fmt.Sprintf("const %s* self", className))
+	case ast.RecvMutRef, ast.RecvValue:
+		parts = append(parts, fmt.Sprintf("%s* self", className))
+	}
 	for _, p := range params {
 		pType := g.typeToC(p.Type)
 		parts = append(parts, fmt.Sprintf("%s %s", pType, p.Name.Value))
@@ -792,7 +798,7 @@ func (g *CGenerator) generateClassMethods(cls *ast.ClassStatement) {
 	className := cls.Name.Value
 	for _, method := range cls.Methods {
 		retType := g.typeToC(method.ReturnType)
-		params := g.methodParamsToC(className, method.Parameters)
+		params := g.methodParamsToC(className, method.Receiver, method.Parameters)
 		g.writeln(fmt.Sprintf("%s %s_%s(%s) {", retType, className, method.Name.Value, params))
 		g.indent++
 		g.enterScope()
@@ -1929,7 +1935,13 @@ func (g *CGenerator) methodSigReturnType(sig *ast.MethodSignature) string {
 }
 
 func (g *CGenerator) vtableMethodParams(sig *ast.MethodSignature) string {
-	parts := []string{"const void* self"}
+	parts := []string{}
+	switch sig.Receiver {
+	case ast.RecvRef:
+		parts = append(parts, "const void* self")
+	case ast.RecvMutRef, ast.RecvValue:
+		parts = append(parts, "void* self")
+	}
 	for _, p := range sig.Parameters {
 		pType := g.typeToC(p.Type)
 		parts = append(parts, fmt.Sprintf("%s %s", pType, p.Name.Value))
@@ -1941,7 +1953,7 @@ func (g *CGenerator) generateImplMethodDecls() {
 	for _, impl := range g.implList {
 		for _, method := range impl.methods {
 			retType := g.typeToC(method.ReturnType)
-			params := g.methodParamsToC(impl.typeName, method.Parameters)
+			params := g.methodParamsToC(impl.typeName, method.Receiver, method.Parameters)
 			g.writeln(fmt.Sprintf("%s %s_%s(%s);", retType, impl.typeName, method.Name.Value, params))
 		}
 	}
@@ -1951,7 +1963,7 @@ func (g *CGenerator) generateImplMethods(program *ast.Program) {
 	for _, impl := range g.implList {
 		for _, method := range impl.methods {
 			retType := g.typeToC(method.ReturnType)
-			params := g.methodParamsToC(impl.typeName, method.Parameters)
+			params := g.methodParamsToC(impl.typeName, method.Receiver, method.Parameters)
 			g.writeln(fmt.Sprintf("%s %s_%s(%s) {", retType, impl.typeName, method.Name.Value, params))
 			g.indent++
 			g.enterScope()
@@ -2002,7 +2014,12 @@ func (g *CGenerator) generateImplWrappers() {
 			g.writeln(fmt.Sprintf("static %s %s(%s) {", retType, wrapperName, wrapperParams))
 			g.indent++
 
-			g.writeln(fmt.Sprintf("%s* p = (%s*)self;", impl.typeName, impl.typeName))
+			switch sig.Receiver {
+			case ast.RecvRef:
+				g.writeln(fmt.Sprintf("const %s* p = (const %s*)self;", impl.typeName, impl.typeName))
+			default:
+				g.writeln(fmt.Sprintf("%s* p = (%s*)self;", impl.typeName, impl.typeName))
+			}
 
 			var argParts []string
 			argParts = append(argParts, "p")

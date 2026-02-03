@@ -489,6 +489,9 @@ interface Printable {
 	if !strings.Contains(output, "const void* data") {
 		t.Errorf("expected const void* data in ref struct, got:\n%s", output)
 	}
+	if !strings.Contains(output, "carv_string (*to_string)(const void* self)") {
+		t.Errorf("expected vtable method to use const void* self, got:\n%s", output)
+	}
 }
 
 func TestImplWrapperAndVtableEmission(t *testing.T) {
@@ -523,7 +526,7 @@ impl Printable for Person {
 	if !strings.Contains(output, "Printable__Person__VT") {
 		t.Errorf("expected vtable instance, got:\n%s", output)
 	}
-	if !strings.Contains(output, "Person_to_string(Person* self)") {
+	if !strings.Contains(output, "Person_to_string(const Person* self)") {
 		t.Errorf("expected impl method, got:\n%s", output)
 	}
 }
@@ -580,5 +583,171 @@ func TestRefParamEmitsConstPointer(t *testing.T) {
 
 	if !strings.Contains(output, "const carv_string* s") {
 		t.Errorf("expected const ref param in output, got:\n%s", output)
+	}
+}
+
+func TestConstSelfMethodEmitsConstPointer(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+class Foo {
+	fn get(&self) -> int {
+		return 1;
+	}
+}
+`
+
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "const Foo* self") {
+		t.Errorf("expected const self pointer in output, got:\n%s", output)
+	}
+}
+
+func TestMutSelfMethodEmitsMutablePointer(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+class Foo {
+	value: int = 0
+	fn set(&mut self, value: int) {
+		self.value = value;
+	}
+}
+`
+
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "Foo_set(Foo* self") {
+		t.Errorf("expected mutable self pointer in output, got:\n%s", output)
+	}
+}
+
+func TestVtableRefMethodHasConstVoidSelf(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+interface Readable {
+	fn read(&self) -> int;
+}
+`
+
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "const void* self") {
+		t.Errorf("expected const void* self in vtable, got:\n%s", output)
+	}
+}
+
+func TestVtableMutRefMethodHasVoidSelf(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+interface Writable {
+	fn write(&mut self, value: int);
+}
+`
+
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "void* self") {
+		t.Errorf("expected void* self in vtable, got:\n%s", output)
+	}
+}
+
+func TestImplWrapperConstCast(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+class Person {
+	name: string
+}
+interface Printable {
+	fn to_string(&self) -> string;
+}
+impl Printable for Person {
+	fn to_string(&self) -> string {
+		return self.name;
+	}
+}
+`
+
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "const Person* p = (const Person*)self") {
+		t.Errorf("expected const cast in wrapper, got:\n%s", output)
+	}
+}
+
+func TestMixedReceiverInterface(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+interface Mixed {
+	fn read(&self) -> int;
+	fn write(&mut self, value: int);
+}
+class Doc {
+	value: int = 0
+}
+impl Mixed for Doc {
+	fn read(&self) -> int {
+		return self.value;
+	}
+	fn write(&mut self, value: int) {
+		self.value = value;
+	}
+}
+`
+
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "const void* self") {
+		t.Errorf("expected const void* self for read, got:\n%s", output)
+	}
+	if !strings.Contains(output, "void* self") {
+		t.Errorf("expected void* self for write, got:\n%s", output)
 	}
 }

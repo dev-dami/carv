@@ -481,3 +481,118 @@ s = "world";
 		t.Fatalf("expected assign while borrowed warning, got %v", warnings)
 	}
 }
+
+func TestSelfMutationThroughImmutableReceiver(t *testing.T) {
+	input := `
+class Foo {
+	x: int = 0
+	fn get(&self) -> int {
+		self.x = 5;
+		return self.x;
+	}
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+	warnings := checker.Warnings()
+	if len(warnings) == 0 {
+		t.Fatalf("expected warning, got none")
+	}
+	found := false
+	for _, warning := range warnings {
+		if strings.Contains(warning, "cannot assign to field through immutable receiver (&self)") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected immutable receiver warning, got %v", warnings)
+	}
+}
+
+func TestReceiverMismatchInImpl(t *testing.T) {
+	input := `
+interface Readable {
+	fn read(&self) -> int;
+}
+class Doc {
+	x: int = 0
+}
+impl Readable for Doc {
+	fn read(&mut self) -> int {
+		return self.x;
+	}
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+	warnings := checker.Warnings()
+	if len(warnings) == 0 {
+		t.Fatalf("expected warning, got none")
+	}
+	found := false
+	for _, warning := range warnings {
+		if strings.Contains(warning, "receiver mismatch for method read") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected receiver mismatch warning, got %v", warnings)
+	}
+}
+
+func TestMutMethodThroughImmutableInterfaceRef(t *testing.T) {
+	input := `
+interface Writable {
+	fn write(&mut self, value: int);
+}
+class Doc {
+	x: int = 0
+}
+impl Writable for Doc {
+	fn write(&mut self, value: int) {
+		self.x = value;
+	}
+}
+let d = new Doc;
+let w = &d as &Writable;
+w.write(1);
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if ok {
+		t.Fatalf("expected error, got none")
+	}
+	found := false
+	for _, err := range checker.Errors() {
+		if strings.Contains(err, "cannot call &mut self method 'write' through immutable interface reference") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected immutable interface dispatch error, got %v", checker.Errors())
+	}
+}
