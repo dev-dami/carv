@@ -1,0 +1,236 @@
+pkg/codegen/cgen_test.go
+  402321c497137897 754-878
+pkg/types/checker_test.go
+  177221d6e48e22aa 599-621,623-627,629-651
+  27b7993d0dd99416 622,628
+pkg/codegen/cgen.go
+  c85790bd2bfee84f 54
+  4028ed11f131598b 1303-1307
+  6cc5b2b881838bae 1381-1383,1391-1396
+  96cadf61f92d7ca4 1523-1534
+  f1fe60123151e168 751-939,941-963
+  2b7cd8a8460f98e6 1347-1348
+  12396d55e70c8eb3 33-37,51-53
+  87d04a83e4e20b67 293
+  fe26b650e118e4f0 940
+  6f256809630b27c7 67-72
+  162f675f8e5e7573 291-292,312-319
+  1b6bc84d1af98443 1103,1107-1109
+pkg/types/checker.go
+  3e350cfb4654111e 789-806
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.42",
+  "base_commit_sha": "ce682e37e7558cb0029328f5aaa9eb0dca5516af",
+  "prompts": {
+    "12396d55e70c8eb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3e721de17ffe4t93rYRr4eIDv0-1ed35527-3f91-48b2-b60e-828e62f51cce",
+        "model": "unknown"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 20,
+      "total_deletions": 12,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    },
+    "162f675f8e5e7573": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3e721de17ffe4t93rYRr4eIDv0-72abb9bb-0630-4ef0-8169-888f7b36b0a4",
+        "model": "unknown"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 11,
+      "total_deletions": 3,
+      "accepted_lines": 11,
+      "overriden_lines": 0
+    },
+    "177221d6e48e22aa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3e721de17ffe4t93rYRr4eIDv0-c276548a-9689-444f-bb7b-52c2d19f8de0",
+        "model": "unknown"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 53,
+      "total_deletions": 0,
+      "accepted_lines": 51,
+      "overriden_lines": 0
+    },
+    "1b6bc84d1af98443": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3e721de17ffe4t93rYRr4eIDv0-a5f45cb5-4ef7-4418-a66f-a11ead11f6cb",
+        "model": "unknown"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 5,
+      "total_deletions": 0,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    },
+    "27b7993d0dd99416": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3e721de17ffe4t93rYRr4eIDv0-fa04232b-e2ee-488a-ac54-252f3edcd347",
+        "model": "unknown"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 2,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "2b7cd8a8460f98e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3e721de17ffe4t93rYRr4eIDv0-f92aadf1-f6d3-4eed-b815-b5e0481c4621",
+        "model": "unknown"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 0,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "3e350cfb4654111e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3e721de17ffe4t93rYRr4eIDv0-39ff80d9-ab2f-4dac-80e3-3d594c0d77dd",
+        "model": "unknown"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 18,
+      "total_deletions": 0,
+      "accepted_lines": 18,
+      "overriden_lines": 0
+    },
+    "402321c497137897": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3e721de17ffe4t93rYRr4eIDv0-2ae0f7f9-2091-4647-8687-2af65bc3242a",
+        "model": "unknown"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 125,
+      "total_deletions": 0,
+      "accepted_lines": 125,
+      "overriden_lines": 0
+    },
+    "4028ed11f131598b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3e721de17ffe4t93rYRr4eIDv0-17937fb8-fa17-44f9-966e-b0d70b6faf8e",
+        "model": "unknown"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 5,
+      "total_deletions": 0,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    },
+    "6cc5b2b881838bae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3e721de17ffe4t93rYRr4eIDv0-07b0d1be-758f-4bc7-afe4-aaa614f8b1fa",
+        "model": "unknown"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 10,
+      "total_deletions": 0,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    },
+    "6f256809630b27c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3e721de17ffe4t93rYRr4eIDv0-a902418b-727c-4d1f-bbbe-d9b8b2e1e9a0",
+        "model": "unknown"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 6,
+      "total_deletions": 0,
+      "accepted_lines": 6,
+      "overriden_lines": 0
+    },
+    "87d04a83e4e20b67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3e721de17ffe4t93rYRr4eIDv0-2f5e1f94-cd76-47b3-b813-aa885e0704a0",
+        "model": "unknown"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "96cadf61f92d7ca4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3e721de17ffe4t93rYRr4eIDv0-3dc8efa8-980f-407b-b3a0-8444e1ec269e",
+        "model": "unknown"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 12,
+      "total_deletions": 0,
+      "accepted_lines": 12,
+      "overriden_lines": 0
+    },
+    "c85790bd2bfee84f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3e721de17ffe4t93rYRr4eIDv0-59a0034f-021b-4318-98c6-8bfff40a8855",
+        "model": "unknown"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 16,
+      "total_deletions": 15,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "f1fe60123151e168": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3e721de17ffe4t93rYRr4eIDv0-446deead-5173-4060-adb6-a437f4cca6ca",
+        "model": "unknown"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 212,
+      "total_deletions": 0,
+      "accepted_lines": 212,
+      "overriden_lines": 0
+    },
+    "fe26b650e118e4f0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3e721de17ffe4t93rYRr4eIDv0-a95b8b3a-dce6-43ad-9022-a720238b603d",
+        "model": "unknown"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
