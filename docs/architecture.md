@@ -71,7 +71,21 @@ Currently targets C99. Key features:
 - **Single-exit functions**: all returns become `goto __carv_exit` with drops at exit label
 - **Ownership-aware code generation**: emits `carv_string_move()`, `carv_string_drop()`, `carv_string_clone()`
 - **Borrow support**: `&T` → `const T*`, `&mut T` → `T*`
+- **Interface dispatch**: vtable-based dynamic dispatch via fat pointers
 - **Arena allocator**: used for all owned heap values
+
+#### Interface Codegen
+
+Interfaces compile to a vtable + fat pointer pattern:
+
+1. **Vtable struct**: one function pointer per interface method, all taking `const void* self` as first param
+2. **Fat pointer**: `{ const void* data; const Vtable* vt; }` — `_ref` (immutable) and `_mut_ref` (mutable) variants
+3. **Impl wrappers**: static functions that cast `const void*` back to the concrete type and call the real method
+4. **Vtable instances**: one `static const` vtable per impl, initialized with wrapper function pointers
+5. **Cast expressions**: `&obj as &Interface` produces a fat pointer literal `{ .data = obj, .vt = &VT }`
+6. **Dynamic dispatch**: `obj.method(args)` on an interface ref becomes `obj.vt->method(obj.data, args)`
+
+Generation order: interface typedefs → impl forward decls → impl bodies → wrappers + vtable instances (all before `main()`)
 
 ### `pkg/module`
 
@@ -112,10 +126,12 @@ The goal is self-hosting - writing the Carv compiler in Carv. That means I need:
 2. ~~String interpolation~~ ✓ Done!
 3. ~~Ownership system (move + drop)~~ ✓ Done!
 4. ~~Borrowing (&T / &mut T)~~ ✓ Done!
-5. Interfaces (interface/impl) — Next
+5. ~~Interfaces (interface/impl)~~ ✓ Done!
 6. Package manager (for external dependencies)
 7. Better standard library
 8. Then rewrite lexer, parser, codegen in Carv
+
+6. Async/await — Next
 
 It's a long road but that's half the fun. Getting closer though!
 

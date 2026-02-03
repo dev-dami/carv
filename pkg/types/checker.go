@@ -33,6 +33,7 @@ type Checker struct {
 	borrows   map[string]*BorrowInfo
 	scope     *Scope
 	nodeTypes map[ast.Expression]Type
+	impls     map[string]map[string]bool
 }
 
 type Scope struct {
@@ -66,6 +67,7 @@ func NewChecker() *Checker {
 		borrows:   make(map[string]*BorrowInfo),
 		scope:     NewScope(nil),
 		nodeTypes: make(map[ast.Expression]Type),
+		impls:     make(map[string]map[string]bool),
 	}
 	c.defineBuiltins()
 	return c
@@ -222,6 +224,12 @@ func (c *Checker) checkStatement(stmt ast.Statement) {
 		c.checkBlockStatement(s)
 	case *ast.RequireStatement:
 		c.checkRequireStatement(s)
+	case *ast.ClassStatement:
+		c.checkClassStatement(s)
+	case *ast.InterfaceStatement:
+		c.checkInterfaceStatement(s)
+	case *ast.ImplStatement:
+		c.checkImplStatement(s)
 	}
 }
 
@@ -468,6 +476,8 @@ func (c *Checker) checkExpression(expr ast.Expression) Type {
 		t = c.checkBorrowExpression(e)
 	case *ast.DerefExpression:
 		t = c.checkDerefExpression(e)
+	case *ast.CastExpression:
+		t = c.checkCastExpression(e)
 	default:
 		t = Any
 	}
@@ -759,7 +769,18 @@ func (c *Checker) checkFunctionLiteral(e *ast.FunctionLiteral) Type {
 }
 
 func (c *Checker) checkMemberExpression(e *ast.MemberExpression) Type {
-	c.checkExpression(e.Object)
+	objType := c.checkExpression(e.Object)
+
+	if result := c.checkMemberExpressionForInterface(e, objType); result != nil {
+		return result
+	}
+
+	if cls, ok := objType.(*ClassType); ok {
+		if fieldType, exists := cls.Fields[e.Member.Value]; exists {
+			return fieldType
+		}
+	}
+
 	return Any
 }
 
@@ -826,6 +847,194 @@ func (c *Checker) checkDerefExpression(e *ast.DerefExpression) Type {
 	line, col := e.Pos()
 	c.warning(line, col, "dereference of non-reference type %s", innerType.String())
 	return innerType
+}
+
+func (c *Checker) checkClassStatement(s *ast.ClassStatement) {
+	fields := make(map[string]Type)
+	for _, f := range s.Fields {
+		var ft Type
+		if f.Type != nil {
+			ft = c.resolveTypeExpr(f.Type)
+		} else {
+			ft = Any
+		}
+		fields[f.Name.Value] = ft
+	}
+
+	classType := &ClassType{Name: s.Name.Value, Fields: fields}
+	c.scope.Define(s.Name.Value, classType)
+
+	for _, method := range s.Methods {
+		prevScope := c.scope
+		prevOwnership := c.pushOwnership()
+		prevBorrows := c.pushBorrows()
+		c.scope = NewScope(prevScope)
+
+		c.scope.Define("self", classType)
+
+		paramTypes := make([]Type, len(method.Parameters))
+		for i, p := range method.Parameters {
+			if p.Type != nil {
+				paramTypes[i] = c.resolveTypeExpr(p.Type)
+			} else {
+				paramTypes[i] = Any
+			}
+			c.scope.Define(p.Name.Value, paramTypes[i])
+		}
+
+		if method.Body != nil {
+			c.checkBlockStatement(method.Body)
+		}
+
+		c.scope = prevScope
+		c.popOwnership(prevOwnership)
+		c.popBorrows(prevBorrows)
+	}
+}
+
+func (c *Checker) checkInterfaceStatement(s *ast.InterfaceStatement) {
+	methods := make(map[string]*FunctionType)
+
+	for _, sig := range s.Methods {
+		paramTypes := make([]Type, len(sig.Parameters))
+		for i, p := range sig.Parameters {
+			if p.Type != nil {
+				paramTypes[i] = c.resolveTypeExpr(p.Type)
+			} else {
+				paramTypes[i] = Any
+			}
+		}
+
+		var retType Type = Void
+		if sig.ReturnType != nil {
+			retType = c.resolveTypeExpr(sig.ReturnType)
+		}
+
+		methods[sig.Name.Value] = &FunctionType{Params: paramTypes, Return: retType}
+	}
+
+	ifaceType := &InterfaceType{Name: s.Name.Value, Methods: methods}
+	c.scope.Define(s.Name.Value, ifaceType)
+}
+
+func (c *Checker) checkImplStatement(s *ast.ImplStatement) {
+	ifaceType, ok := c.scope.Lookup(s.Interface.Value)
+	if !ok {
+		line, col := s.Interface.Pos()
+		c.error(line, col, "undefined interface: %s", s.Interface.Value)
+		return
+	}
+	iface, ok := ifaceType.(*InterfaceType)
+	if !ok {
+		line, col := s.Interface.Pos()
+		c.error(line, col, "%s is not an interface", s.Interface.Value)
+		return
+	}
+
+	classType, ok := c.scope.Lookup(s.Type.Value)
+	if !ok {
+		line, col := s.Type.Pos()
+		c.error(line, col, "undefined type: %s", s.Type.Value)
+		return
+	}
+
+	implMethods := make(map[string]*FunctionType)
+	for _, method := range s.Methods {
+		paramTypes := make([]Type, len(method.Parameters))
+		for i, p := range method.Parameters {
+			if p.Type != nil {
+				paramTypes[i] = c.resolveTypeExpr(p.Type)
+			} else {
+				paramTypes[i] = Any
+			}
+		}
+
+		var retType Type = Void
+		if method.ReturnType != nil {
+			retType = c.resolveTypeExpr(method.ReturnType)
+		}
+
+		implMethods[method.Name.Value] = &FunctionType{Params: paramTypes, Return: retType}
+
+		prevScope := c.scope
+		prevOwnership := c.pushOwnership()
+		prevBorrows := c.pushBorrows()
+		c.scope = NewScope(prevScope)
+
+		c.scope.Define("self", classType)
+
+		for i, p := range method.Parameters {
+			c.scope.Define(p.Name.Value, paramTypes[i])
+		}
+
+		if method.Body != nil {
+			c.checkBlockStatement(method.Body)
+		}
+
+		c.scope = prevScope
+		c.popOwnership(prevOwnership)
+		c.popBorrows(prevBorrows)
+	}
+
+	for name, ifaceMethod := range iface.Methods {
+		implMethod, exists := implMethods[name]
+		if !exists {
+			line, col := s.Pos()
+			c.error(line, col, "type %s does not implement %s: missing method %s",
+				s.Type.Value, s.Interface.Value, name)
+			continue
+		}
+		if len(implMethod.Params) != len(ifaceMethod.Params) {
+			line, col := s.Pos()
+			c.error(line, col, "method %s has wrong number of parameters", name)
+			continue
+		}
+		for i, p := range ifaceMethod.Params {
+			if !c.isAssignable(p, implMethod.Params[i]) {
+				line, col := s.Pos()
+				c.error(line, col, "method %s parameter %d: expected %s, got %s",
+					name, i+1, p.String(), implMethod.Params[i].String())
+			}
+		}
+		if !c.isAssignable(ifaceMethod.Return, implMethod.Return) {
+			line, col := s.Pos()
+			c.error(line, col, "method %s: return type mismatch: expected %s, got %s",
+				name, ifaceMethod.Return.String(), implMethod.Return.String())
+		}
+	}
+
+	if c.impls[s.Type.Value] == nil {
+		c.impls[s.Type.Value] = make(map[string]bool)
+	}
+	c.impls[s.Type.Value][s.Interface.Value] = true
+}
+
+func (c *Checker) checkCastExpression(e *ast.CastExpression) Type {
+	c.checkExpression(e.Value)
+	targetType := c.resolveTypeExpr(e.Type)
+
+	if ref, ok := targetType.(*RefType); ok {
+		if iface, ok := ref.Inner.(*InterfaceType); ok {
+			_ = iface
+			return targetType
+		}
+	}
+
+	return targetType
+}
+
+func (c *Checker) checkMemberExpressionForInterface(e *ast.MemberExpression, objType Type) Type {
+	if ref, ok := objType.(*RefType); ok {
+		if iface, ok := ref.Inner.(*InterfaceType); ok {
+			if methodType, exists := iface.Methods[e.Member.Value]; exists {
+				return methodType
+			}
+			line, col := e.Member.Pos()
+			c.error(line, col, "interface %s has no method %s", iface.Name, e.Member.Value)
+			return Any
+		}
+	}
+	return nil
 }
 
 func (c *Checker) resolveTypeExpr(typeExpr ast.TypeExpr) Type {

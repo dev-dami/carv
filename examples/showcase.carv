@@ -100,3 +100,45 @@ fn print_len(s: &string) -> int {
 let msg = "borrowing works!";
 let n = print_len(&msg);
 println(f"'{msg}' has length {n}");  // msg still valid after borrow
+
+// Interfaces - dynamic dispatch via vtables
+interface Greeter {
+    fn greet(&self) -> string;
+}
+
+class English {
+    name: string = "English"
+
+    fn greet(&self) -> string {
+        return "Hello!";
+    }
+}
+
+class Spanish {
+    name: string = "Spanish"
+
+    fn greet(&self) -> string {
+        return "Hola!";
+    }
+}
+
+impl Greeter for English {
+    fn greet(&self) -> string {
+        return "Hello!";
+    }
+}
+
+impl Greeter for Spanish {
+    fn greet(&self) -> string {
+        return "Hola!";
+    }
+}
+
+fn say_greeting(g: &Greeter) {
+    println(g.greet());
+}
+
+let e = new English;
+let s = new Spanish;
+say_greeting(&e as &Greeter);  // prints: Hello!
+say_greeting(&s as &Greeter);  // prints: Hola!

@@ -666,6 +666,158 @@ func TestMultiplyInfix(t *testing.T) {
 	}
 }
 
+func TestInterfaceStatement(t *testing.T) {
+	input := `interface Printable {
+	fn to_string(&self) -> string;
+	fn display(&self);
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+
+	iface, ok := program.Statements[0].(*ast.InterfaceStatement)
+	if !ok {
+		t.Fatalf("expected InterfaceStatement, got %T", program.Statements[0])
+	}
+
+	if iface.Name.Value != "Printable" {
+		t.Fatalf("expected interface name 'Printable', got %s", iface.Name.Value)
+	}
+
+	if len(iface.Methods) != 2 {
+		t.Fatalf("expected 2 methods, got %d", len(iface.Methods))
+	}
+
+	if iface.Methods[0].Name.Value != "to_string" {
+		t.Fatalf("expected method name 'to_string', got %s", iface.Methods[0].Name.Value)
+	}
+	if iface.Methods[0].Receiver != ast.RecvRef {
+		t.Fatalf("expected RecvRef receiver, got %d", iface.Methods[0].Receiver)
+	}
+	if iface.Methods[0].ReturnType == nil {
+		t.Fatal("expected return type for to_string")
+	}
+}
+
+func TestImplStatement(t *testing.T) {
+	input := `impl Printable for Person {
+	fn to_string(&self) -> string {
+		return self.name;
+	}
+	fn display(&self) {
+		println(self.name);
+	}
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+
+	impl, ok := program.Statements[0].(*ast.ImplStatement)
+	if !ok {
+		t.Fatalf("expected ImplStatement, got %T", program.Statements[0])
+	}
+
+	if impl.Interface.Value != "Printable" {
+		t.Fatalf("expected interface 'Printable', got %s", impl.Interface.Value)
+	}
+	if impl.Type.Value != "Person" {
+		t.Fatalf("expected type 'Person', got %s", impl.Type.Value)
+	}
+	if len(impl.Methods) != 2 {
+		t.Fatalf("expected 2 methods, got %d", len(impl.Methods))
+	}
+	if impl.Methods[0].Receiver != ast.RecvRef {
+		t.Fatalf("expected RecvRef receiver, got %d", impl.Methods[0].Receiver)
+	}
+}
+
+func TestCastExpression(t *testing.T) {
+	input := `&p as &Printable;`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	stmt := program.Statements[0].(*ast.ExpressionStatement)
+	cast, ok := stmt.Expression.(*ast.CastExpression)
+	if !ok {
+		t.Fatalf("expected CastExpression, got %T", stmt.Expression)
+	}
+
+	if _, ok := cast.Value.(*ast.BorrowExpression); !ok {
+		t.Fatalf("expected BorrowExpression as cast value, got %T", cast.Value)
+	}
+
+	ref, ok := cast.Type.(*ast.RefType)
+	if !ok {
+		t.Fatalf("expected RefType as cast target, got %T", cast.Type)
+	}
+	named, ok := ref.Inner.(*ast.NamedType)
+	if !ok {
+		t.Fatalf("expected NamedType inside RefType, got %T", ref.Inner)
+	}
+	if named.Name.Value != "Printable" {
+		t.Fatalf("expected 'Printable', got %s", named.Name.Value)
+	}
+}
+
+func TestMethodReceiverParsing(t *testing.T) {
+	input := `class Dog {
+	name: string
+	fn bark(&self) -> string {
+		return self.name;
+	}
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	cls := program.Statements[0].(*ast.ClassStatement)
+	if len(cls.Methods) != 1 {
+		t.Fatalf("expected 1 method, got %d", len(cls.Methods))
+	}
+	if cls.Methods[0].Receiver != ast.RecvRef {
+		t.Fatalf("expected RecvRef, got %d", cls.Methods[0].Receiver)
+	}
+	if len(cls.Methods[0].Parameters) != 0 {
+		t.Fatalf("expected 0 params (receiver is separate), got %d", len(cls.Methods[0].Parameters))
+	}
+}
+
+func TestMethodReceiverMutRefDefault(t *testing.T) {
+	input := `class Counter {
+	value: int = 0
+	fn increment() {
+		self.value = self.value + 1;
+	}
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	cls := program.Statements[0].(*ast.ClassStatement)
+	if cls.Methods[0].Receiver != ast.RecvMutRef {
+		t.Fatalf("expected RecvMutRef default, got %d", cls.Methods[0].Receiver)
+	}
+}
+
 func checkParserErrors(t *testing.T, p *Parser) {
 	errors := p.Errors()
 	if len(errors) == 0 {

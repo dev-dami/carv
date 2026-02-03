@@ -349,6 +349,107 @@ let r = &s;
 	}
 }
 
+func TestInterfaceDefinitionNoErrors(t *testing.T) {
+	input := `
+interface Printable {
+	fn to_string(&self) -> string;
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+}
+
+func TestImplSatisfiesInterface(t *testing.T) {
+	input := `
+class Person {
+	name: string
+}
+interface Printable {
+	fn to_string(&self) -> string;
+}
+impl Printable for Person {
+	fn to_string(&self) -> string {
+		return self.name;
+	}
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+}
+
+func TestImplMissingMethodError(t *testing.T) {
+	input := `
+class Person {
+	name: string
+}
+interface Printable {
+	fn to_string(&self) -> string;
+	fn display(&self);
+}
+impl Printable for Person {
+	fn to_string(&self) -> string {
+		return self.name;
+	}
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if ok {
+		t.Fatal("expected error for missing method")
+	}
+	found := false
+	for _, err := range checker.Errors() {
+		if strings.Contains(err, "missing method display") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected missing method error, got %v", checker.Errors())
+	}
+}
+
+func TestClassStatementRegistersType(t *testing.T) {
+	input := `
+class Point {
+	x: int = 0
+	y: int = 0
+}
+let p = new Point;
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+}
+
 func TestBorrowAssignWhileBorrowedWarning(t *testing.T) {
 	input := `
 mut s = "hello";

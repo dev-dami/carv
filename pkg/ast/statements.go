@@ -139,6 +139,16 @@ func (cs *ClassStatement) statementNode()       {}
 func (cs *ClassStatement) TokenLiteral() string { return cs.Token.Literal }
 func (cs *ClassStatement) Pos() (int, int)      { return cs.Token.Line, cs.Token.Column }
 
+// ReceiverKind describes how a method receives its instance
+type ReceiverKind int
+
+const (
+	RecvNone   ReceiverKind = iota // no receiver (standalone function)
+	RecvValue                      // self (consumes)
+	RecvRef                        // &self (immutable borrow)
+	RecvMutRef                     // &mut self (mutable borrow)
+)
+
 type FieldDecl struct {
 	Token   lexer.Token
 	Name    *Identifier
@@ -151,6 +161,7 @@ type FieldDecl struct {
 type MethodDecl struct {
 	Token      lexer.Token
 	Name       *Identifier
+	Receiver   ReceiverKind
 	Parameters []*Parameter
 	ReturnType TypeExpr
 	Body       *BlockStatement
@@ -172,6 +183,7 @@ func (is *InterfaceStatement) Pos() (int, int)      { return is.Token.Line, is.T
 type MethodSignature struct {
 	Token      lexer.Token
 	Name       *Identifier
+	Receiver   ReceiverKind
 	Parameters []*Parameter
 	ReturnType TypeExpr
 }
