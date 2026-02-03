@@ -420,3 +420,60 @@ func TestZeroValue(t *testing.T) {
 		}
 	}
 }
+
+func TestBorrowExpressionEmitsAddressOf(t *testing.T) {
+	gen := NewCGenerator()
+	input := `let x = 1; let r = &x;`
+
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "(&x)") {
+		t.Errorf("expected address-of expression in output, got:\n%s", output)
+	}
+}
+
+func TestDerefExpressionEmitsPointerAccess(t *testing.T) {
+	gen := NewCGenerator()
+	input := `let x = 1; let r = &x; let y = *r;`
+
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "(*r)") {
+		t.Errorf("expected deref expression in output, got:\n%s", output)
+	}
+}
+
+func TestRefParamEmitsConstPointer(t *testing.T) {
+	gen := NewCGenerator()
+	input := `fn take(s: &string) {}`
+
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "const carv_string* s") {
+		t.Errorf("expected const ref param in output, got:\n%s", output)
+	}
+}

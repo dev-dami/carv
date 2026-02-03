@@ -21,10 +21,16 @@ type VarOwnership struct {
 	MovedTo string // what it was moved to (variable name or "function call")
 }
 
+type BorrowInfo struct {
+	ImmutableCount int
+	MutableActive  bool
+}
+
 type Checker struct {
 	errors    []string
 	warnings  []string
 	ownership map[string]*VarOwnership
+	borrows   map[string]*BorrowInfo
 	scope     *Scope
 	nodeTypes map[ast.Expression]Type
 }
@@ -57,6 +63,7 @@ func NewChecker() *Checker {
 		errors:    []string{},
 		warnings:  []string{},
 		ownership: make(map[string]*VarOwnership),
+		borrows:   make(map[string]*BorrowInfo),
 		scope:     NewScope(nil),
 		nodeTypes: make(map[ast.Expression]Type),
 	}
@@ -151,6 +158,21 @@ func (c *Checker) pushOwnership() map[string]*VarOwnership {
 
 func (c *Checker) popOwnership(prev map[string]*VarOwnership) {
 	c.ownership = prev
+}
+
+func (c *Checker) pushBorrows() map[string]*BorrowInfo {
+	prev := c.borrows
+	next := make(map[string]*BorrowInfo, len(prev))
+	for name, info := range prev {
+		cp := *info
+		next[name] = &cp
+	}
+	c.borrows = next
+	return prev
+}
+
+func (c *Checker) popBorrows(prev map[string]*BorrowInfo) {
+	c.borrows = prev
 }
 
 func (c *Checker) trackOwnership(name string, t Type) {
@@ -283,6 +305,7 @@ func (c *Checker) checkFunctionStatement(s *ast.FunctionStatement) {
 
 	prevScope := c.scope
 	prevOwnership := c.pushOwnership()
+	prevBorrows := c.pushBorrows()
 	c.scope = NewScope(prevScope)
 
 	for i, p := range s.Parameters {
@@ -293,6 +316,7 @@ func (c *Checker) checkFunctionStatement(s *ast.FunctionStatement) {
 	c.checkBlockStatement(s.Body)
 	c.scope = prevScope
 	c.popOwnership(prevOwnership)
+	c.popBorrows(prevBorrows)
 }
 
 func (c *Checker) checkReturnStatement(s *ast.ReturnStatement) {
@@ -304,12 +328,19 @@ func (c *Checker) checkReturnStatement(s *ast.ReturnStatement) {
 				c.markMoved(ident.Value, line, "return")
 			}
 		}
+		if retType != nil {
+			if _, isRef := retType.(*RefType); isRef {
+				line, col := s.ReturnValue.Pos()
+				c.warning(line, col, "reference cannot escape function scope")
+			}
+		}
 	}
 }
 
 func (c *Checker) checkForStatement(s *ast.ForStatement) {
 	prevScope := c.scope
 	prevOwnership := c.pushOwnership()
+	prevBorrows := c.pushBorrows()
 	c.scope = NewScope(prevScope)
 
 	if s.Init != nil {
@@ -329,6 +360,7 @@ func (c *Checker) checkForStatement(s *ast.ForStatement) {
 
 	c.scope = prevScope
 	c.popOwnership(prevOwnership)
+	c.popBorrows(prevBorrows)
 }
 
 func (c *Checker) checkForInStatement(s *ast.ForInStatement) {
@@ -336,6 +368,7 @@ func (c *Checker) checkForInStatement(s *ast.ForInStatement) {
 
 	prevScope := c.scope
 	prevOwnership := c.pushOwnership()
+	prevBorrows := c.pushBorrows()
 	c.scope = NewScope(prevScope)
 
 	if arr, ok := iterType.(*ArrayType); ok {
@@ -349,6 +382,7 @@ func (c *Checker) checkForInStatement(s *ast.ForInStatement) {
 	c.checkBlockStatement(s.Body)
 	c.scope = prevScope
 	c.popOwnership(prevOwnership)
+	c.popBorrows(prevBorrows)
 }
 
 func (c *Checker) checkWhileStatement(s *ast.WhileStatement) {
@@ -430,6 +464,10 @@ func (c *Checker) checkExpression(expr ast.Expression) Type {
 		t = c.checkSpawnExpression(e)
 	case *ast.InterpolatedString:
 		t = c.checkInterpolatedString(e)
+	case *ast.BorrowExpression:
+		t = c.checkBorrowExpression(e)
+	case *ast.DerefExpression:
+		t = c.checkDerefExpression(e)
 	default:
 		t = Any
 	}
@@ -571,6 +609,10 @@ func (c *Checker) checkAssignExpression(e *ast.AssignExpression) Type {
 				line, col := e.Pos()
 				c.error(line, col, "cannot assign %s to %s", rightType.String(), leftType.String())
 			}
+		}
+		if bi, exists := c.borrows[ident.Value]; exists && (bi.ImmutableCount > 0 || bi.MutableActive) {
+			line, col := e.Pos()
+			c.warning(line, col, "cannot assign to '%s' while it is borrowed", ident.Value)
 		}
 		return leftType
 	}
@@ -733,6 +775,59 @@ func (c *Checker) checkInterpolatedString(e *ast.InterpolatedString) Type {
 	return String
 }
 
+func (c *Checker) checkBorrowExpression(e *ast.BorrowExpression) Type {
+	innerType := c.checkExpression(e.Value)
+
+	varName := ""
+	if ident, ok := e.Value.(*ast.Identifier); ok {
+		varName = ident.Value
+	}
+
+	if varName != "" {
+		if own, exists := c.ownership[varName]; exists && own.State == Moved {
+			line, col := e.Pos()
+			c.warning(line, col, "cannot borrow moved value '%s' (moved at line %d)", varName, own.MovedAt)
+			return &RefType{Inner: innerType, Mutable: e.Mutable}
+		}
+
+		info := c.borrows[varName]
+		if info == nil {
+			info = &BorrowInfo{}
+			c.borrows[varName] = info
+		}
+
+		if e.Mutable {
+			if info.ImmutableCount > 0 {
+				line, col := e.Pos()
+				c.warning(line, col, "cannot mutably borrow '%s': already immutably borrowed", varName)
+			}
+			if info.MutableActive {
+				line, col := e.Pos()
+				c.warning(line, col, "cannot mutably borrow '%s': already mutably borrowed", varName)
+			}
+			info.MutableActive = true
+		} else {
+			if info.MutableActive {
+				line, col := e.Pos()
+				c.warning(line, col, "cannot immutably borrow '%s': already mutably borrowed", varName)
+			}
+			info.ImmutableCount++
+		}
+	}
+
+	return &RefType{Inner: innerType, Mutable: e.Mutable}
+}
+
+func (c *Checker) checkDerefExpression(e *ast.DerefExpression) Type {
+	innerType := c.checkExpression(e.Value)
+	if ref, ok := innerType.(*RefType); ok {
+		return ref.Inner
+	}
+	line, col := e.Pos()
+	c.warning(line, col, "dereference of non-reference type %s", innerType.String())
+	return innerType
+}
+
 func (c *Checker) resolveTypeExpr(typeExpr ast.TypeExpr) Type {
 	switch t := typeExpr.(type) {
 	case *ast.BasicType:
@@ -760,6 +855,9 @@ func (c *Checker) resolveTypeExpr(typeExpr ast.TypeExpr) Type {
 			return typ
 		}
 		return Any
+	case *ast.RefType:
+		inner := c.resolveTypeExpr(t.Inner)
+		return &RefType{Inner: inner, Mutable: t.Mutable}
 	}
 	return Any
 }

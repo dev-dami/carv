@@ -96,6 +96,13 @@ func checkerTypeToCString(t types.Type) string {
 	if cls, ok := t.(*types.ClassType); ok {
 		return cls.Name + "*"
 	}
+	if ref, ok := t.(*types.RefType); ok {
+		inner := checkerTypeToCString(ref.Inner)
+		if ref.Mutable {
+			return inner + "*"
+		}
+		return "const " + inner + "*"
+	}
 	if _, ok := t.(*types.FunctionType); ok {
 		return "void*"
 	}
@@ -1042,6 +1049,12 @@ func (g *CGenerator) generateExpression(expr ast.Expression) string {
 		return g.generateMatchExpression(e)
 	case *ast.InterpolatedString:
 		return g.generateInterpolatedString(e)
+	case *ast.BorrowExpression:
+		inner := g.generateExpression(e.Value)
+		return "(&" + inner + ")"
+	case *ast.DerefExpression:
+		inner := g.generateExpression(e.Value)
+		return "(*" + inner + ")"
 	}
 	return ""
 }
@@ -1502,6 +1515,12 @@ func (g *CGenerator) typeToC(typeExpr ast.TypeExpr) string {
 		case "void":
 			return "void"
 		}
+	case *ast.RefType:
+		inner := g.typeToC(t.Inner)
+		if t.Mutable {
+			return inner + "*"
+		}
+		return "const " + inner + "*"
 	}
 	return "void"
 }
@@ -1573,6 +1592,18 @@ func (g *CGenerator) inferExprType(expr ast.Expression) string {
 		return "carv_result"
 	case *ast.TryExpression:
 		return g.inferResultOkType(e.Value)
+	case *ast.BorrowExpression:
+		inner := g.inferExprType(e.Value)
+		if e.Mutable {
+			return inner + "*"
+		}
+		return "const " + inner + "*"
+	case *ast.DerefExpression:
+		inner := g.inferExprType(e.Value)
+		if strings.HasSuffix(inner, "*") {
+			return strings.TrimSuffix(inner, "*")
+		}
+		return inner
 	}
 	return "carv_int"
 }

@@ -546,6 +546,126 @@ func TestClassStatement(t *testing.T) {
 	}
 }
 
+func TestBorrowExpression(t *testing.T) {
+	input := `&x;`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	stmt := program.Statements[0].(*ast.ExpressionStatement)
+	borrow, ok := stmt.Expression.(*ast.BorrowExpression)
+	if !ok {
+		t.Fatalf("expected BorrowExpression, got %T", stmt.Expression)
+	}
+	if borrow.Mutable {
+		t.Fatalf("expected immutable borrow")
+	}
+	ident, ok := borrow.Value.(*ast.Identifier)
+	if !ok || ident.Value != "x" {
+		t.Fatalf("expected identifier x, got %T", borrow.Value)
+	}
+}
+
+func TestBorrowMutExpression(t *testing.T) {
+	input := `&mut x;`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	stmt := program.Statements[0].(*ast.ExpressionStatement)
+	borrow, ok := stmt.Expression.(*ast.BorrowExpression)
+	if !ok {
+		t.Fatalf("expected BorrowExpression, got %T", stmt.Expression)
+	}
+	if !borrow.Mutable {
+		t.Fatalf("expected mutable borrow")
+	}
+	ident, ok := borrow.Value.(*ast.Identifier)
+	if !ok || ident.Value != "x" {
+		t.Fatalf("expected identifier x, got %T", borrow.Value)
+	}
+}
+
+func TestDerefExpression(t *testing.T) {
+	input := `*x;`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	stmt := program.Statements[0].(*ast.ExpressionStatement)
+	deref, ok := stmt.Expression.(*ast.DerefExpression)
+	if !ok {
+		t.Fatalf("expected DerefExpression, got %T", stmt.Expression)
+	}
+	ident, ok := deref.Value.(*ast.Identifier)
+	if !ok || ident.Value != "x" {
+		t.Fatalf("expected identifier x, got %T", deref.Value)
+	}
+}
+
+func TestBorrowPrecedence(t *testing.T) {
+	input := `&x + 1;`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	stmt := program.Statements[0].(*ast.ExpressionStatement)
+	infix, ok := stmt.Expression.(*ast.InfixExpression)
+	if !ok {
+		t.Fatalf("expected InfixExpression, got %T", stmt.Expression)
+	}
+	if infix.Operator != "+" {
+		t.Fatalf("expected + operator, got %s", infix.Operator)
+	}
+	if _, ok := infix.Left.(*ast.BorrowExpression); !ok {
+		t.Fatalf("expected BorrowExpression on left, got %T", infix.Left)
+	}
+}
+
+func TestBitwiseAndInfix(t *testing.T) {
+	input := `x & y;`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	stmt := program.Statements[0].(*ast.ExpressionStatement)
+	infix, ok := stmt.Expression.(*ast.InfixExpression)
+	if !ok {
+		t.Fatalf("expected InfixExpression, got %T", stmt.Expression)
+	}
+	if infix.Operator != "&" {
+		t.Fatalf("expected & operator, got %s", infix.Operator)
+	}
+}
+
+func TestMultiplyInfix(t *testing.T) {
+	input := `x * y;`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	stmt := program.Statements[0].(*ast.ExpressionStatement)
+	infix, ok := stmt.Expression.(*ast.InfixExpression)
+	if !ok {
+		t.Fatalf("expected InfixExpression, got %T", stmt.Expression)
+	}
+	if infix.Operator != "*" {
+		t.Fatalf("expected * operator, got %s", infix.Operator)
+	}
+}
+
 func checkParserErrors(t *testing.T, p *Parser) {
 	errors := p.Errors()
 	if len(errors) == 0 {
