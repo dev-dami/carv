@@ -165,3 +165,42 @@ func IsComparable(t Type) bool {
 	}
 	return false
 }
+
+// TypeCategory classifies types for ownership semantics
+type TypeCategory int
+
+const (
+	CopyType TypeCategory = iota // int, float, bool, char — implicit copy on assignment
+	MoveType                     // string, []T, {K:V}, class instances — move on assignment
+)
+
+// Category returns whether a type is Copy or Move
+func Category(t Type) TypeCategory {
+	if t == nil {
+		return CopyType
+	}
+	switch {
+	case t.Equals(Int), t.Equals(Float), t.Equals(Bool), t.Equals(Char), t.Equals(Void), t.Equals(Nil):
+		return CopyType
+	case t.Equals(String):
+		return MoveType
+	case t.Equals(Any):
+		return CopyType // Any is treated as copy for backward compat
+	}
+	switch t.(type) {
+	case *ArrayType, *MapType, *ClassType:
+		return MoveType
+	default:
+		return CopyType
+	}
+}
+
+// IsCopyType returns true if the type is implicitly copied on assignment
+func IsCopyType(t Type) bool {
+	return Category(t) == CopyType
+}
+
+// IsMoveType returns true if assignment moves ownership (source becomes invalid)
+func IsMoveType(t Type) bool {
+	return Category(t) == MoveType
+}

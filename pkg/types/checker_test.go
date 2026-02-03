@@ -1,6 +1,7 @@
 package types
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/dev-dami/carv/pkg/lexer"
@@ -138,5 +139,106 @@ func TestTypeCheckerErrors(t *testing.T) {
 		if ok {
 			t.Errorf("expected error for %s: %q", tt.desc, tt.input)
 		}
+	}
+}
+
+func TestTypeCheckerCopyAssignmentNoWarnings(t *testing.T) {
+	input := `
+let x = 1;
+let y = x;
+let z = x;
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+	if len(checker.Warnings()) != 0 {
+		t.Fatalf("expected no warnings, got %v", checker.Warnings())
+	}
+}
+
+func TestTypeCheckerMoveAssignmentWarnsOnReuse(t *testing.T) {
+	input := `
+let s = "hi";
+let t = s;
+let u = s;
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+	warnings := checker.Warnings()
+	if len(warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %v", warnings)
+	}
+	if !strings.Contains(warnings[0], "use of moved value 's'") {
+		t.Fatalf("unexpected warning: %s", warnings[0])
+	}
+}
+
+func TestTypeCheckerMoveArgWarnsOnReuse(t *testing.T) {
+	input := `
+fn take(a: string) {
+    print(a);
+}
+let s = "hi";
+take(s);
+let t = s;
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+	warnings := checker.Warnings()
+	if len(warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %v", warnings)
+	}
+	if !strings.Contains(warnings[0], "use of moved value 's'") {
+		t.Fatalf("unexpected warning: %s", warnings[0])
+	}
+}
+
+func TestTypeCheckerMoveReturnWarnsOnReuse(t *testing.T) {
+	input := `
+fn give() -> string {
+    let s = "hi";
+    return s;
+    let t = s;
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected errors: %v", checker.Errors())
+	}
+	warnings := checker.Warnings()
+	if len(warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %v", warnings)
+	}
+	if !strings.Contains(warnings[0], "use of moved value 's'") {
+		t.Fatalf("unexpected warning: %s", warnings[0])
 	}
 }
