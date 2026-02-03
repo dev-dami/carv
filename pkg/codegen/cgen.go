@@ -19,6 +19,17 @@ type cgenScope struct {
 	vars   map[string]*cgenVar
 }
 
+type interfaceInfo struct {
+	name    string
+	methods []*ast.MethodSignature
+}
+
+type implInfo struct {
+	ifaceName string
+	typeName  string
+	methods   []*ast.MethodDecl
+}
+
 type CGenerator struct {
 	output        strings.Builder
 	indent        int
@@ -30,12 +41,15 @@ type CGenerator struct {
 	preamble      []string
 	inFunction    bool
 	funcRetType   string
+	interfaces    map[string]*interfaceInfo
+	implList      []*implInfo
 }
 
 func NewCGenerator() *CGenerator {
 	g := &CGenerator{
 		arrayLengths:  make(map[string]int),
 		fnReturnTypes: make(map[string]string),
+		interfaces:    make(map[string]*interfaceInfo),
 	}
 	g.scope = newScope(nil)
 	return g
@@ -97,11 +111,20 @@ func checkerTypeToCString(t types.Type) string {
 		return cls.Name + "*"
 	}
 	if ref, ok := t.(*types.RefType); ok {
+		if iface, ok := ref.Inner.(*types.InterfaceType); ok {
+			if ref.Mutable {
+				return iface.Name + "_mut_ref"
+			}
+			return iface.Name + "_ref"
+		}
 		inner := checkerTypeToCString(ref.Inner)
 		if ref.Mutable {
 			return inner + "*"
 		}
 		return "const " + inner + "*"
+	}
+	if iface, ok := t.(*types.InterfaceType); ok {
+		return iface.Name + "_ref"
 	}
 	if _, ok := t.(*types.FunctionType); ok {
 		return "void*"
@@ -208,6 +231,7 @@ func (g *CGenerator) inferResultPayloadTypes(body *ast.BlockStatement) (okType, 
 
 func (g *CGenerator) Generate(program *ast.Program) string {
 	g.collectFunctionReturnTypes(program)
+	g.collectInterfacesAndImpls(program)
 	g.emitRuntime()
 
 	for _, stmt := range program.Statements {
@@ -215,6 +239,8 @@ func (g *CGenerator) Generate(program *ast.Program) string {
 			g.generateClassDecl(cls)
 		}
 	}
+
+	g.generateInterfaceTypedefs()
 
 	for _, stmt := range program.Statements {
 		if fn, ok := stmt.(*ast.FunctionStatement); ok {
@@ -227,6 +253,8 @@ func (g *CGenerator) Generate(program *ast.Program) string {
 			g.generateClassMethodDecls(cls)
 		}
 	}
+
+	g.generateImplMethodDecls()
 
 	g.writeln("")
 
@@ -242,13 +270,16 @@ func (g *CGenerator) Generate(program *ast.Program) string {
 		}
 	}
 
+	g.generateImplMethods(program)
+	g.generateImplWrappers()
+
 	g.writeln("")
 	g.writeln("int main(void) {")
 	g.indent++
 
 	for _, stmt := range program.Statements {
 		switch stmt.(type) {
-		case *ast.FunctionStatement, *ast.ClassStatement:
+		case *ast.FunctionStatement, *ast.ClassStatement, *ast.InterfaceStatement, *ast.ImplStatement:
 			continue
 		default:
 			g.generateStatement(stmt)
@@ -1055,6 +1086,8 @@ func (g *CGenerator) generateExpression(expr ast.Expression) string {
 	case *ast.DerefExpression:
 		inner := g.generateExpression(e.Value)
 		return "(*" + inner + ")"
+	case *ast.CastExpression:
+		return g.generateCastExpression(e)
 	}
 	return ""
 }
@@ -1239,6 +1272,16 @@ func (g *CGenerator) generateMethodCall(member *ast.MemberExpression, args []ast
 		}
 	}
 
+	objCType := g.resolveType(member.Object)
+	if g.isInterfaceRefType(objCType) {
+		var argStrs []string
+		argStrs = append(argStrs, obj+".data")
+		for _, arg := range args {
+			argStrs = append(argStrs, g.generateExpression(arg))
+		}
+		return fmt.Sprintf("%s.vt->%s(%s)", obj, methodName, strings.Join(argStrs, ", "))
+	}
+
 	className := g.inferClassName(member.Object)
 	if className == "" {
 		className = "Unknown"
@@ -1251,6 +1294,22 @@ func (g *CGenerator) generateMethodCall(member *ast.MemberExpression, args []ast
 	}
 
 	return fmt.Sprintf("%s_%s(%s)", className, methodName, strings.Join(argStrs, ", "))
+}
+
+func (g *CGenerator) isInterfaceRefType(ctype string) bool {
+	if strings.HasSuffix(ctype, "_ref") {
+		name := strings.TrimSuffix(ctype, "_ref")
+		if _, ok := g.interfaces[name]; ok {
+			return true
+		}
+	}
+	if strings.HasSuffix(ctype, "_mut_ref") {
+		name := strings.TrimSuffix(ctype, "_mut_ref")
+		if _, ok := g.interfaces[name]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (g *CGenerator) inferClassName(expr ast.Expression) string {
@@ -1384,6 +1443,10 @@ func (g *CGenerator) inferIfExprType(e *ast.IfExpression) string {
 func (g *CGenerator) generateMemberExpression(e *ast.MemberExpression) string {
 	obj := g.generateExpression(e.Object)
 	member := e.Member.Value
+	objCType := g.resolveType(e.Object)
+	if g.isInterfaceRefType(objCType) {
+		return fmt.Sprintf("%s.%s", obj, member)
+	}
 	return fmt.Sprintf("%s->%s", obj, member)
 }
 
@@ -1516,11 +1579,24 @@ func (g *CGenerator) typeToC(typeExpr ast.TypeExpr) string {
 			return "void"
 		}
 	case *ast.RefType:
+		if named, ok := t.Inner.(*ast.NamedType); ok {
+			if _, isIface := g.interfaces[named.Name.Value]; isIface {
+				if t.Mutable {
+					return named.Name.Value + "_mut_ref"
+				}
+				return named.Name.Value + "_ref"
+			}
+		}
 		inner := g.typeToC(t.Inner)
 		if t.Mutable {
 			return inner + "*"
 		}
 		return "const " + inner + "*"
+	case *ast.NamedType:
+		if _, isIface := g.interfaces[t.Name.Value]; isIface {
+			return t.Name.Value + "_ref"
+		}
+		return t.Name.Value + "*"
 	}
 	return "void"
 }
@@ -1604,6 +1680,8 @@ func (g *CGenerator) inferExprType(expr ast.Expression) string {
 			return strings.TrimSuffix(inner, "*")
 		}
 		return inner
+	case *ast.CastExpression:
+		return g.typeToC(e.Type)
 	}
 	return "carv_int"
 }
@@ -1792,6 +1870,199 @@ func (g *CGenerator) errFieldForType(cType string) string {
 	default:
 		return "err_str"
 	}
+}
+
+func (g *CGenerator) collectInterfacesAndImpls(program *ast.Program) {
+	for _, stmt := range program.Statements {
+		if iface, ok := stmt.(*ast.InterfaceStatement); ok {
+			g.interfaces[iface.Name.Value] = &interfaceInfo{
+				name:    iface.Name.Value,
+				methods: iface.Methods,
+			}
+		}
+	}
+	for _, stmt := range program.Statements {
+		if impl, ok := stmt.(*ast.ImplStatement); ok {
+			g.implList = append(g.implList, &implInfo{
+				ifaceName: impl.Interface.Value,
+				typeName:  impl.Type.Value,
+				methods:   impl.Methods,
+			})
+		}
+	}
+}
+
+func (g *CGenerator) generateInterfaceTypedefs() {
+	for _, info := range g.interfaces {
+		g.writeln(fmt.Sprintf("typedef struct {"))
+		g.indent++
+		for _, sig := range info.methods {
+			retType := g.methodSigReturnType(sig)
+			params := g.vtableMethodParams(sig)
+			g.writeln(fmt.Sprintf("%s (*%s)(%s);", retType, sig.Name.Value, params))
+		}
+		g.indent--
+		g.writeln(fmt.Sprintf("} %s_vtable;", info.name))
+		g.writeln("")
+		g.writeln(fmt.Sprintf("typedef struct {"))
+		g.indent++
+		g.writeln("const void* data;")
+		g.writeln(fmt.Sprintf("const %s_vtable* vt;", info.name))
+		g.indent--
+		g.writeln(fmt.Sprintf("} %s_ref;", info.name))
+		g.writeln("")
+		g.writeln(fmt.Sprintf("typedef struct {"))
+		g.indent++
+		g.writeln("void* data;")
+		g.writeln(fmt.Sprintf("const %s_vtable* vt;", info.name))
+		g.indent--
+		g.writeln(fmt.Sprintf("} %s_mut_ref;", info.name))
+		g.writeln("")
+	}
+}
+
+func (g *CGenerator) methodSigReturnType(sig *ast.MethodSignature) string {
+	if sig.ReturnType == nil {
+		return "void"
+	}
+	return g.typeToC(sig.ReturnType)
+}
+
+func (g *CGenerator) vtableMethodParams(sig *ast.MethodSignature) string {
+	parts := []string{"const void* self"}
+	for _, p := range sig.Parameters {
+		pType := g.typeToC(p.Type)
+		parts = append(parts, fmt.Sprintf("%s %s", pType, p.Name.Value))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func (g *CGenerator) generateImplMethodDecls() {
+	for _, impl := range g.implList {
+		for _, method := range impl.methods {
+			retType := g.typeToC(method.ReturnType)
+			params := g.methodParamsToC(impl.typeName, method.Parameters)
+			g.writeln(fmt.Sprintf("%s %s_%s(%s);", retType, impl.typeName, method.Name.Value, params))
+		}
+	}
+}
+
+func (g *CGenerator) generateImplMethods(program *ast.Program) {
+	for _, impl := range g.implList {
+		for _, method := range impl.methods {
+			retType := g.typeToC(method.ReturnType)
+			params := g.methodParamsToC(impl.typeName, method.Parameters)
+			g.writeln(fmt.Sprintf("%s %s_%s(%s) {", retType, impl.typeName, method.Name.Value, params))
+			g.indent++
+			g.enterScope()
+
+			g.inFunction = true
+			g.funcRetType = retType
+
+			if retType != "void" {
+				g.writeln(fmt.Sprintf("%s __carv_retval = %s;", retType, g.zeroValue(retType)))
+			}
+
+			for _, p := range method.Parameters {
+				pType := g.typeToC(p.Type)
+				g.declareVar(p.Name.Value, pType, false, false)
+			}
+
+			for _, stmt := range method.Body.Statements {
+				g.generateStatement(stmt)
+			}
+
+			g.writeln("__carv_exit:;")
+			g.emitScopeDrops()
+			if retType != "void" {
+				g.writeln("return __carv_retval;")
+			}
+
+			g.exitScope()
+			g.inFunction = false
+			g.indent--
+			g.writeln("}")
+			g.writeln("")
+		}
+	}
+}
+
+func (g *CGenerator) generateImplWrappers() {
+	for _, impl := range g.implList {
+		iface, ok := g.interfaces[impl.ifaceName]
+		if !ok {
+			continue
+		}
+
+		for _, sig := range iface.methods {
+			retType := g.methodSigReturnType(sig)
+			wrapperParams := g.vtableMethodParams(sig)
+			wrapperName := fmt.Sprintf("%s__%s__%s", impl.ifaceName, impl.typeName, sig.Name.Value)
+
+			g.writeln(fmt.Sprintf("static %s %s(%s) {", retType, wrapperName, wrapperParams))
+			g.indent++
+
+			g.writeln(fmt.Sprintf("%s* p = (%s*)self;", impl.typeName, impl.typeName))
+
+			var argParts []string
+			argParts = append(argParts, "p")
+			for _, p := range sig.Parameters {
+				argParts = append(argParts, p.Name.Value)
+			}
+
+			call := fmt.Sprintf("%s_%s(%s)", impl.typeName, sig.Name.Value, strings.Join(argParts, ", "))
+			if retType == "void" {
+				g.writeln(call + ";")
+			} else {
+				g.writeln(fmt.Sprintf("return %s;", call))
+			}
+
+			g.indent--
+			g.writeln("}")
+			g.writeln("")
+		}
+
+		g.writeln(fmt.Sprintf("static const %s_vtable %s__%s__VT = {", impl.ifaceName, impl.ifaceName, impl.typeName))
+		g.indent++
+		for _, sig := range iface.methods {
+			wrapperName := fmt.Sprintf("%s__%s__%s", impl.ifaceName, impl.typeName, sig.Name.Value)
+			g.writeln(fmt.Sprintf(".%s = %s,", sig.Name.Value, wrapperName))
+		}
+		g.indent--
+		g.writeln("};")
+		g.writeln("")
+	}
+}
+
+func (g *CGenerator) generateCastExpression(e *ast.CastExpression) string {
+	val := g.generateExpression(e.Value)
+
+	if refType, ok := e.Type.(*ast.RefType); ok {
+		if named, ok := refType.Inner.(*ast.NamedType); ok {
+			ifaceName := named.Name.Value
+			if _, isIface := g.interfaces[ifaceName]; isIface {
+				className := g.inferCastSourceClass(e.Value)
+				if className != "" {
+					if refType.Mutable {
+						return fmt.Sprintf("(%s_mut_ref){ .data = %s, .vt = &%s__%s__VT }",
+							ifaceName, val, ifaceName, className)
+					}
+					return fmt.Sprintf("(%s_ref){ .data = %s, .vt = &%s__%s__VT }",
+						ifaceName, val, ifaceName, className)
+				}
+			}
+		}
+	}
+
+	targetType := g.typeToC(e.Type)
+	return fmt.Sprintf("(%s)%s", targetType, val)
+}
+
+func (g *CGenerator) inferCastSourceClass(expr ast.Expression) string {
+	if borrow, ok := expr.(*ast.BorrowExpression); ok {
+		return g.inferClassName(borrow.Value)
+	}
+	return g.inferClassName(expr)
 }
 
 func (g *CGenerator) escapeString(s string) string {

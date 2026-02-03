@@ -26,6 +26,7 @@ const (
 	SHIFT
 	SUM
 	PRODUCT
+	CAST
 	PREFIX
 	CALL
 	INDEX
@@ -60,6 +61,7 @@ var precedences = map[lexer.TokenType]precedence{
 	lexer.TOKEN_STAR:         PRODUCT,
 	lexer.TOKEN_SLASH:        PRODUCT,
 	lexer.TOKEN_PERCENT:      PRODUCT,
+	lexer.TOKEN_AS:           CAST,
 	lexer.TOKEN_LPAREN:       CALL,
 	lexer.TOKEN_LBRACKET:     INDEX,
 	lexer.TOKEN_DOT:          INDEX,
@@ -146,6 +148,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerInfix(lexer.TOKEN_VBAR_EQ, p.parseAssignExpression)
 	p.registerInfix(lexer.TOKEN_CARET_EQ, p.parseAssignExpression)
 	p.registerInfix(lexer.TOKEN_QUESTION, p.parseTryExpression)
+	p.registerInfix(lexer.TOKEN_AS, p.parseCastExpression)
 
 	p.nextToken()
 	p.nextToken()
@@ -241,6 +244,10 @@ func (p *Parser) parseStatement() ast.Statement {
 		stmt = p.parseFunctionStatement()
 	case lexer.TOKEN_CLASS:
 		stmt = p.parseClassStatement()
+	case lexer.TOKEN_INTERFACE:
+		stmt = p.parseInterfaceStatement()
+	case lexer.TOKEN_IMPL:
+		stmt = p.parseImplStatement()
 	case lexer.TOKEN_FOR:
 		stmt = p.parseForStatement()
 	case lexer.TOKEN_WHILE:
@@ -286,6 +293,12 @@ func (p *Parser) parsePublicStatement() ast.Statement {
 		return stmt
 	case lexer.TOKEN_CLASS:
 		stmt := p.parseClassStatement()
+		if stmt != nil {
+			stmt.Public = true
+		}
+		return stmt
+	case lexer.TOKEN_INTERFACE:
+		stmt := p.parseInterfaceStatement()
 		if stmt != nil {
 			stmt.Public = true
 		}
@@ -494,7 +507,11 @@ func (p *Parser) parseMethodDecl() *ast.MethodDecl {
 	if !p.expectPeek(lexer.TOKEN_LPAREN) {
 		return nil
 	}
-	method.Parameters = p.parseFunctionParameters()
+
+	method.Receiver, method.Parameters = p.parseReceiverAndParams()
+	if method.Receiver == ast.RecvNone {
+		method.Receiver = ast.RecvMutRef
+	}
 
 	if p.peekTokenIs(lexer.TOKEN_ARROW) {
 		p.nextToken()
@@ -1291,6 +1308,216 @@ func (p *Parser) parseInterpolatedString() ast.Expression {
 	}
 
 	return expr
+}
+
+func (p *Parser) parseCastExpression(left ast.Expression) ast.Expression {
+	expr := &ast.CastExpression{Token: p.curToken, Value: left}
+	p.nextToken()
+	expr.Type = p.parseTypeExpr()
+	return expr
+}
+
+func (p *Parser) parseInterfaceStatement() *ast.InterfaceStatement {
+	stmt := &ast.InterfaceStatement{Token: p.curToken}
+
+	if !p.expectPeek(lexer.TOKEN_IDENT) {
+		return nil
+	}
+	stmt.Name = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+
+	if !p.expectPeek(lexer.TOKEN_LBRACE) {
+		return nil
+	}
+
+	stmt.Methods = []*ast.MethodSignature{}
+	p.nextToken()
+
+	for !p.curTokenIs(lexer.TOKEN_RBRACE) && !p.curTokenIs(lexer.TOKEN_EOF) {
+		if p.curTokenIs(lexer.TOKEN_FN) {
+			sig := p.parseMethodSignature()
+			if sig != nil {
+				stmt.Methods = append(stmt.Methods, sig)
+			}
+		}
+		p.nextToken()
+	}
+
+	return stmt
+}
+
+func (p *Parser) parseMethodSignature() *ast.MethodSignature {
+	sig := &ast.MethodSignature{Token: p.curToken}
+
+	if !p.expectPeek(lexer.TOKEN_IDENT) {
+		return nil
+	}
+	sig.Name = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+
+	if !p.expectPeek(lexer.TOKEN_LPAREN) {
+		return nil
+	}
+
+	sig.Receiver, sig.Parameters = p.parseReceiverAndParams()
+
+	if p.peekTokenIs(lexer.TOKEN_ARROW) {
+		p.nextToken()
+		p.nextToken()
+		sig.ReturnType = p.parseTypeExpr()
+	}
+
+	if p.peekTokenIs(lexer.TOKEN_SEMI) {
+		p.nextToken()
+	}
+
+	return sig
+}
+
+func (p *Parser) parseReceiverAndParams() (ast.ReceiverKind, []*ast.Parameter) {
+	recv := ast.RecvNone
+	params := []*ast.Parameter{}
+
+	if p.peekTokenIs(lexer.TOKEN_RPAREN) {
+		p.nextToken()
+		return recv, params
+	}
+
+	p.nextToken()
+
+	if p.curTokenIs(lexer.TOKEN_AMPERSAND) {
+		if p.peekTokenIs(lexer.TOKEN_MUT) {
+			p.nextToken()
+			if p.peekTokenIs(lexer.TOKEN_SELF) {
+				p.nextToken()
+				recv = ast.RecvMutRef
+				if p.peekTokenIs(lexer.TOKEN_COMMA) {
+					p.nextToken()
+					p.nextToken()
+					params = p.parseRemainingParams()
+				}
+				if !p.expectPeek(lexer.TOKEN_RPAREN) {
+					return recv, nil
+				}
+				return recv, params
+			}
+		} else if p.peekTokenIs(lexer.TOKEN_SELF) {
+			p.nextToken()
+			recv = ast.RecvRef
+			if p.peekTokenIs(lexer.TOKEN_COMMA) {
+				p.nextToken()
+				p.nextToken()
+				params = p.parseRemainingParams()
+			}
+			if !p.expectPeek(lexer.TOKEN_RPAREN) {
+				return recv, nil
+			}
+			return recv, params
+		}
+	} else if p.curTokenIs(lexer.TOKEN_SELF) {
+		recv = ast.RecvValue
+		if p.peekTokenIs(lexer.TOKEN_COMMA) {
+			p.nextToken()
+			p.nextToken()
+			params = p.parseRemainingParams()
+		}
+		if !p.expectPeek(lexer.TOKEN_RPAREN) {
+			return recv, nil
+		}
+		return recv, params
+	}
+
+	param := p.parseParameter()
+	if param != nil {
+		params = append(params, param)
+	}
+	params = append(params, p.parseRemainingParams()...)
+
+	if !p.expectPeek(lexer.TOKEN_RPAREN) {
+		return recv, nil
+	}
+	return recv, params
+}
+
+func (p *Parser) parseRemainingParams() []*ast.Parameter {
+	params := []*ast.Parameter{}
+	param := p.parseParameter()
+	if param != nil {
+		params = append(params, param)
+	}
+	for p.peekTokenIs(lexer.TOKEN_COMMA) {
+		p.nextToken()
+		p.nextToken()
+		param := p.parseParameter()
+		if param != nil {
+			params = append(params, param)
+		}
+	}
+	return params
+}
+
+func (p *Parser) parseImplStatement() *ast.ImplStatement {
+	stmt := &ast.ImplStatement{Token: p.curToken}
+
+	if !p.expectPeek(lexer.TOKEN_IDENT) {
+		return nil
+	}
+	ifaceName := &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+
+	if !p.expectPeek(lexer.TOKEN_FOR) {
+		return nil
+	}
+
+	if !p.expectPeek(lexer.TOKEN_IDENT) {
+		return nil
+	}
+	stmt.Type = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+	stmt.Interface = ifaceName
+
+	if !p.expectPeek(lexer.TOKEN_LBRACE) {
+		return nil
+	}
+
+	stmt.Methods = []*ast.MethodDecl{}
+	p.nextToken()
+
+	for !p.curTokenIs(lexer.TOKEN_RBRACE) && !p.curTokenIs(lexer.TOKEN_EOF) {
+		if p.curTokenIs(lexer.TOKEN_FN) {
+			method := p.parseImplMethodDecl()
+			if method != nil {
+				stmt.Methods = append(stmt.Methods, method)
+			}
+		}
+		p.nextToken()
+	}
+
+	return stmt
+}
+
+func (p *Parser) parseImplMethodDecl() *ast.MethodDecl {
+	method := &ast.MethodDecl{Token: p.curToken}
+
+	if !p.expectPeek(lexer.TOKEN_IDENT) {
+		return nil
+	}
+	method.Name = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+
+	if !p.expectPeek(lexer.TOKEN_LPAREN) {
+		return nil
+	}
+
+	method.Receiver, method.Parameters = p.parseReceiverAndParams()
+
+	if p.peekTokenIs(lexer.TOKEN_ARROW) {
+		p.nextToken()
+		p.nextToken()
+		method.ReturnType = p.parseTypeExpr()
+	}
+
+	if !p.expectPeek(lexer.TOKEN_LBRACE) {
+		return nil
+	}
+	method.Body = p.parseBlockStatement()
+
+	return method
 }
 
 func (p *Parser) parseMapLiteral() ast.Expression {

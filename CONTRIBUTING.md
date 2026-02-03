@@ -63,13 +63,15 @@ pkg/
   ast/          # AST definitions
   types/        # type checker (ownership tracking, borrow checking)
   eval/         # interpreter
-  codegen/      # C code generator (ownership-aware, borrow support)
+  codegen/      # C code generator (ownership-aware, borrow support, vtable dispatch)
   module/       # module loader & carv.toml config
 examples/       # example programs
 docs/           # documentation
 ```
 
 **Ownership & Borrowing**: The type checker (`pkg/types`) tracks ownership (move/drop) and enforces borrow rules. The codegen (`pkg/codegen`) emits ownership-aware C code with proper drop calls and borrow support (&T / &mut T).
+
+**Interfaces**: Defined with `interface`, implemented with `impl ... for`. The checker verifies impl method signatures match the interface. Codegen emits vtable structs, fat pointer typedefs (`_ref`/`_mut_ref`), wrapper functions, and static vtable instances. Dynamic dispatch uses `obj.vt->method(obj.data, args)`. Interface refs are created via cast: `&obj as &Interface`.
 
 ## Response Time
 

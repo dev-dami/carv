@@ -26,7 +26,7 @@ This document specifies the full design for three new language systems before an
 - **Phase 0**: Foundation (type info plumbing) — ✅ DONE
 - **Phase 1a**: Ownership Core (move + drop) — ✅ DONE
 - **Phase 1b**: Borrowing (&T / &mut T) — ✅ DONE
-- **Phase 1c**: Interfaces (parse + check + vtable codegen) — Next
+- **Phase 1c**: Interfaces (parse + check + vtable codegen) — ✅ DONE
 - **Phase 2**: Interface + Ownership Integration
 - **Phase 3a**: Closures in Codegen
 - **Phase 3b**: Async Core (state machines + event loop)

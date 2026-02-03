@@ -459,6 +459,111 @@ func TestDerefExpressionEmitsPointerAccess(t *testing.T) {
 	}
 }
 
+func TestInterfaceVtableEmission(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+interface Printable {
+	fn to_string(&self) -> string;
+}
+`
+
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "Printable_vtable") {
+		t.Errorf("expected Printable_vtable typedef, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Printable_ref") {
+		t.Errorf("expected Printable_ref typedef, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Printable_mut_ref") {
+		t.Errorf("expected Printable_mut_ref typedef, got:\n%s", output)
+	}
+	if !strings.Contains(output, "const void* data") {
+		t.Errorf("expected const void* data in ref struct, got:\n%s", output)
+	}
+}
+
+func TestImplWrapperAndVtableEmission(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+class Person {
+	name: string
+}
+interface Printable {
+	fn to_string(&self) -> string;
+}
+impl Printable for Person {
+	fn to_string(&self) -> string {
+		return self.name;
+	}
+}
+`
+
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "Printable__Person__to_string") {
+		t.Errorf("expected wrapper function, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Printable__Person__VT") {
+		t.Errorf("expected vtable instance, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Person_to_string(Person* self)") {
+		t.Errorf("expected impl method, got:\n%s", output)
+	}
+}
+
+func TestCastExpressionEmitsFatPointer(t *testing.T) {
+	gen := NewCGenerator()
+	input := `
+class Person {
+	name: string
+}
+interface Printable {
+	fn to_string(&self) -> string;
+}
+impl Printable for Person {
+	fn to_string(&self) -> string {
+		return self.name;
+	}
+}
+let p = new Person;
+let item = &p as &Printable;
+`
+
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	output := gen.Generate(program)
+
+	if !strings.Contains(output, "Printable_ref") {
+		t.Errorf("expected Printable_ref type in cast, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Printable__Person__VT") {
+		t.Errorf("expected vtable reference in cast, got:\n%s", output)
+	}
+}
+
 func TestRefParamEmitsConstPointer(t *testing.T) {
 	gen := NewCGenerator()
 	input := `fn take(s: &string) {}`

@@ -164,6 +164,65 @@ increment(&mut n);
 print(n);  // 6
 ```
 
+## Interfaces
+
+Interfaces define a set of methods that types can implement. Dispatch is dynamic via vtable.
+
+### Defining an Interface
+
+```carv
+interface Printable {
+    fn to_string(&self) -> string;
+    fn display(&self);
+}
+```
+
+Interface methods must declare a receiver: `&self` (immutable borrow) or `&mut self` (mutable borrow). Value receivers (`self`) are not supported in v1.
+
+### Implementing an Interface
+
+Use `impl Interface for Type`:
+
+```carv
+class Person {
+    name: string
+}
+
+impl Printable for Person {
+    fn to_string(&self) -> string {
+        return self.name;
+    }
+    fn display(&self) {
+        println(self.name);
+    }
+}
+```
+
+The checker verifies that all interface methods are implemented with matching signatures.
+
+### Interface References and Dynamic Dispatch
+
+Cast a class reference to an interface reference with `as`:
+
+```carv
+let p = new Person;
+p.name = "Alice";
+
+let item: &Printable = &p as &Printable;
+item.display();  // dynamic dispatch through vtable
+```
+
+Only `&Interface` (immutable) and `&mut Interface` (mutable) are supported — owned trait objects are not.
+
+### Cast Expression
+
+The `as` keyword is an infix operator for type casts:
+
+```carv
+let x = &p as &Printable;       // immutable interface ref
+let y = &mut p as &mut Printable; // mutable interface ref
+```
+
 ## Arrays
 
 ```carv

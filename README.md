@@ -31,6 +31,7 @@ Features that actually work:
 - **String interpolation** with `f"hello {name}"`
 - **Ownership system** (move semantics, `clone()` for deep copy)
 - **Borrowing** (`&T` / `&mut T`)
+- **Interfaces** (`interface` / `impl` with vtable-based dynamic dispatch)
 - Project config via `carv.toml`
 - 40+ built-in functions (strings, files, process, environment, etc.)
 
@@ -126,7 +127,7 @@ Then:
 - [x] Ownership system (move + drop)
 - [x] Borrowing (&T / &mut T)
 - [x] Project config (`carv.toml`)
-- [ ] Interfaces (interface/impl)
+- [x] Interfaces (interface/impl)
 - [ ] Async/await
 - [ ] Package manager
 - [ ] Self-hosting
