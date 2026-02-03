@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 120">
+  <defs>
+    <linearGradient id="carvGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#f59e0b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ef4444;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background shape - carved angle -->
+  <polygon points="10,60 50,20 50,100" fill="url(#accentGrad)" opacity="0.9"/>
+  
+  <!-- Main text: CARV -->
+  <text x="70" y="85" font-family="monospace, 'Courier New', Courier" font-size="72" font-weight="bold" fill="url(#carvGrad)">
+    CARV
+  </text>
+  
+  <!-- Underline accent -->
+  <rect x="70" y="95" width="200" height="4" rx="2" fill="url(#accentGrad)"/>
+  
+  <!-- Tagline -->
+  <text x="280" y="108" font-family="sans-serif, Arial" font-size="12" fill="#64748b">
+    lang
+  </text>
+</svg>

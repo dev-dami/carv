@@ -1,3 +1,21 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="Carv Logo" width="400">
+</p>
+
+<p align="center">
+  <strong>A statically-typed language that compiles to C</strong>
+</p>
+
+<p align="center">
+  <a href="#features">Features</a> •
+  <a href="#quick-look">Quick Look</a> •
+  <a href="#building">Building</a> •
+  <a href="#where-things-stand">Status</a> •
+  <a href="#docs">Docs</a>
+</p>
+
+---
+
 # Carv
 
 An ambitious little programming language I've been tinkering with.
@@ -20,18 +38,20 @@ Carv compiles to C and runs natively. It has a tree-walking interpreter too for 
 
 Features that actually work:
 - Static typing with inference
-- Pipe operator (`|>`) - my favorite part and why not
+- Pipe operator (`|>`) - my favorite part
 - `let` / `mut` / `const` with proper immutability enforcement
 - Compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`)
 - Classes with methods
-- Result types (`Ok`/`Err`) with pattern matching cause **RUST**
+- Result types (`Ok`/`Err`) with pattern matching
 - Hash maps
 - `for-in` loops over arrays, strings, and maps
+- **Closures** - first-class functions with environment capture
 - **Module system** with `require` (Rust-inspired, package manager ready)
 - **String interpolation** with `f"hello {name}"`
 - **Ownership system** (move semantics, `clone()` for deep copy)
 - **Borrowing** (`&T` / `&mut T`)
 - **Interfaces** (`interface` / `impl` with vtable-based dynamic dispatch)
+- **Async/await** syntax (compiles to state machines)
 - Project config via `carv.toml`
 - 40+ built-in functions (strings, files, process, environment, etc.)
 
@@ -74,11 +94,21 @@ let x = divide(10, 2)?;
 let scores = {"alice": 100, "bob": 85};
 
 // classes
-class Counter {
-    value: int = 0
-    fn increment() {
-        self.value = self.value + 1;
-    }
+class Point {
+    x: int = 0
+    y: int = 0
+}
+
+// closures
+let multiplier = 3;
+let triple = fn(x: int) -> int {
+    return x * multiplier;
+};
+println(f"triple(5) = {triple(5)}");
+
+// async/await (syntax preview)
+async fn fetch_data() -> int {
+    return 42;
 }
 ```
 
@@ -118,19 +148,43 @@ Then:
 
 ## Where Things Stand
 
+### Core Language
 - [x] Lexer, parser, type checker
-- [x] Interpreter
-- [x] C codegen
-- [x] Result types, classes, maps
+- [x] Tree-walking interpreter
+- [x] C code generation
+- [x] Static typing with inference
+
+### Data Types & Structures
+- [x] Primitives (int, float, string, bool, char)
+- [x] Arrays and hash maps
+- [x] Result types (`Ok`/`Err`) with pattern matching
+- [x] Classes with methods
+
+### Memory & Ownership
+- [x] Ownership system (move semantics)
+- [x] Borrowing (`&T` / `&mut T`)
+- [x] Arena allocator in codegen
+- [x] Automatic drop insertion
+
+### Functional Features
+- [x] First-class functions
+- [x] Closures with capture
+- [x] Pipe operator (`|>`)
+- [x] Higher-order functions
+
+### Advanced Features
+- [x] Interfaces (`interface`/`impl` with vtables)
 - [x] Module system (`require`)
 - [x] String interpolation (`f"..."`)
-- [x] Ownership system (move + drop)
-- [x] Borrowing (&T / &mut T)
+- [x] Async/await syntax (codegen ready, runtime WIP)
+
+### Tooling
 - [x] Project config (`carv.toml`)
-- [x] Interfaces (interface/impl)
-- [ ] Async/await
+- [x] REPL
+- [x] Build scripts
 - [ ] Package manager
 - [ ] Self-hosting
+- [ ] LSP / Editor support
 
 ---
 
