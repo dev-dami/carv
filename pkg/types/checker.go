@@ -347,11 +347,9 @@ func (c *Checker) checkReturnStatement(s *ast.ReturnStatement) {
 				c.markMoved(ident.Value, line, "return")
 			}
 		}
-		if retType != nil {
-			if _, isRef := retType.(*RefType); isRef {
-				line, col := s.ReturnValue.Pos()
-				c.warning(line, col, "reference cannot escape function scope")
-			}
+		if _, isRef := retType.(*RefType); isRef {
+			line, col := s.ReturnValue.Pos()
+			c.warning(line, col, "reference cannot escape function scope")
 		}
 	}
 }

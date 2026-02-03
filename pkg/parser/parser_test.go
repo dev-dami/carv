@@ -757,7 +757,7 @@ func TestCastExpression(t *testing.T) {
 		t.Fatalf("expected CastExpression, got %T", stmt.Expression)
 	}
 
-	if _, ok := cast.Value.(*ast.BorrowExpression); !ok {
+	if _, isBorrow := cast.Value.(*ast.BorrowExpression); !isBorrow {
 		t.Fatalf("expected BorrowExpression as cast value, got %T", cast.Value)
 	}
 

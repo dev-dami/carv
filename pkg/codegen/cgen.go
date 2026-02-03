@@ -849,7 +849,7 @@ func (g *CGenerator) generateAsyncFunction(fn *ast.FunctionStatement) {
 	pollName := fnName + "_poll"
 
 	var frameDef strings.Builder
-	frameDef.WriteString(fmt.Sprintf("typedef struct {\n    int __state;\n"))
+	frameDef.WriteString("typedef struct {\n    int __state;\n")
 	for _, p := range info.Params {
 		frameDef.WriteString(fmt.Sprintf("    %s %s;\n", p.CType, p.Name))
 	}
@@ -1171,7 +1171,7 @@ func (g *CGenerator) generateClosureExpression(fn *ast.FunctionLiteral) string {
 
 	// Emit env struct
 	var envDef strings.Builder
-	envDef.WriteString(fmt.Sprintf("typedef struct { "))
+	envDef.WriteString("typedef struct { ")
 	for _, c := range captures {
 		envDef.WriteString(fmt.Sprintf("%s %s; ", c.CType, c.Name))
 	}
@@ -1976,11 +1976,6 @@ func (g *CGenerator) generatePrintCall(e *ast.CallExpression) string {
 	return "(" + strings.Join(parts, ", ") + ")"
 }
 
-func (g *CGenerator) isArrayIdent(name string) bool {
-	_, ok := g.arrayLengths[name]
-	return ok
-}
-
 func (g *CGenerator) generateArrayPrint(argStr string, elemType string) string {
 	switch elemType {
 	case "carv_int":
@@ -2504,7 +2499,7 @@ func (g *CGenerator) collectInterfacesAndImpls(program *ast.Program) {
 
 func (g *CGenerator) generateInterfaceTypedefs() {
 	for _, info := range g.interfaces {
-		g.writeln(fmt.Sprintf("typedef struct {"))
+		g.writeln("typedef struct {")
 		g.indent++
 		for _, sig := range info.methods {
 			retType := g.methodSigReturnType(sig)
@@ -2514,14 +2509,14 @@ func (g *CGenerator) generateInterfaceTypedefs() {
 		g.indent--
 		g.writeln(fmt.Sprintf("} %s_vtable;", info.name))
 		g.writeln("")
-		g.writeln(fmt.Sprintf("typedef struct {"))
+		g.writeln("typedef struct {")
 		g.indent++
 		g.writeln("const void* data;")
 		g.writeln(fmt.Sprintf("const %s_vtable* vt;", info.name))
 		g.indent--
 		g.writeln(fmt.Sprintf("} %s_ref;", info.name))
 		g.writeln("")
-		g.writeln(fmt.Sprintf("typedef struct {"))
+		g.writeln("typedef struct {")
 		g.indent++
 		g.writeln("void* data;")
 		g.writeln(fmt.Sprintf("const %s_vtable* vt;", info.name))

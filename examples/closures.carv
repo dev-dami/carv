@@ -1,0 +1,46 @@
+// Closures - first-class functions that capture their environment
+
+// Simple closure capturing a variable
+let multiplier = 3;
+let triple = fn(x: int) -> int {
+    return x * multiplier;
+};
+
+println(f"triple(5) = {triple(5)}");
+println(f"triple(10) = {triple(10)}");
+
+// Closure capturing multiple variables
+let base = 10;
+let scale = 2;
+let transform = fn(x: int) -> int {
+    return (x + base) * scale;
+};
+
+println(f"transform(5) = {transform(5)}");
+
+// Closure with string capture
+let prefix = "Hello, ";
+let greet = fn(name: string) -> string {
+    return prefix + name;
+};
+
+println(greet("World"));
+println(greet("Carv"));
+
+// Non-capturing closure (pure function)
+let square = fn(x: int) -> int {
+    return x * x;
+};
+
+println(f"square(7) = {square(7)}");
+
+// Closure for addition
+let add_five = fn(x: int) -> int {
+    return x + 5;
+};
+
+println(f"add_five(10) = {add_five(10)}");
+
+// Chained closure calls
+let result = square(add_five(3));
+println(f"square(add_five(3)) = {result}");
