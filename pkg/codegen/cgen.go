@@ -273,15 +273,57 @@ func (g *CGenerator) collectAsyncLocals(body *ast.BlockStatement, info *asyncFnI
 	if body == nil {
 		return
 	}
+	seen := make(map[string]bool, len(info.Params))
+	for _, p := range info.Params {
+		seen[p.Name] = true
+	}
+	for _, l := range info.Locals {
+		seen[l.Name] = true
+	}
+	g.collectAsyncLocalsFromBlock(body, info, seen)
+}
+
+func (g *CGenerator) collectAsyncLocalsFromBlock(body *ast.BlockStatement, info *asyncFnInfo, seen map[string]bool) {
+	if body == nil {
+		return
+	}
 	for _, stmt := range body.Statements {
-		switch s := stmt.(type) {
-		case *ast.LetStatement:
-			varType := g.inferType(s.Value)
-			info.Locals = append(info.Locals, paramInfo{
-				Name:  s.Name.Value,
-				CType: varType,
-			})
+		g.collectAsyncLocalsFromStatement(stmt, info, seen)
+	}
+}
+
+func (g *CGenerator) collectAsyncLocalsFromStatement(stmt ast.Statement, info *asyncFnInfo, seen map[string]bool) {
+	switch s := stmt.(type) {
+	case *ast.LetStatement:
+		if seen[s.Name.Value] {
+			return
 		}
+		seen[s.Name.Value] = true
+		info.Locals = append(info.Locals, paramInfo{
+			Name:  s.Name.Value,
+			CType: g.inferType(s.Value),
+		})
+	case *ast.ForStatement:
+		if s.Init != nil {
+			g.collectAsyncLocalsFromStatement(s.Init, info, seen)
+		}
+		g.collectAsyncLocalsFromBlock(s.Body, info, seen)
+		if s.Post != nil {
+			g.collectAsyncLocalsFromStatement(s.Post, info, seen)
+		}
+	case *ast.ForInStatement:
+		g.collectAsyncLocalsFromBlock(s.Body, info, seen)
+	case *ast.WhileStatement:
+		g.collectAsyncLocalsFromBlock(s.Body, info, seen)
+	case *ast.LoopStatement:
+		g.collectAsyncLocalsFromBlock(s.Body, info, seen)
+	case *ast.ExpressionStatement:
+		if ifExpr, ok := s.Expression.(*ast.IfExpression); ok {
+			g.collectAsyncLocalsFromBlock(ifExpr.Consequence, info, seen)
+			g.collectAsyncLocalsFromBlock(ifExpr.Alternative, info, seen)
+		}
+	case *ast.BlockStatement:
+		g.collectAsyncLocalsFromBlock(s, info, seen)
 	}
 }
 
@@ -351,7 +393,7 @@ func (g *CGenerator) Generate(program *ast.Program) string {
 
 	var asyncMain *ast.FunctionStatement
 	for _, stmt := range program.Statements {
-		if fn, ok := stmt.(*ast.FunctionStatement); ok && fn.Name.Value == "main" && fn.Async {
+		if fn, ok := stmt.(*ast.FunctionStatement); ok && fn.Async && g.safeName(fn.Name.Value) == "carv_main" {
 			asyncMain = fn
 			break
 		}
@@ -782,6 +824,7 @@ func (g *CGenerator) generateFunctionDecl(fn *ast.FunctionStatement) {
 	params := g.paramsToC(fn.Parameters)
 	if fn.Async {
 		frameName := fnName + "_frame"
+		g.writeln(fmt.Sprintf("typedef struct %s %s;", frameName, frameName))
 		g.writeln(fmt.Sprintf("%s* %s(%s);", frameName, fnName, params))
 		return
 	}
@@ -834,6 +877,7 @@ func (g *CGenerator) safeName(name string) string {
 		"register": true, "return": true, "signed": true, "sizeof": true,
 		"static": true, "struct": true, "switch": true, "typedef": true,
 		"union": true, "unsigned": true, "volatile": true, "while": true,
+		"main": true,
 	}
 	if reserved[name] {
 		return "carv_" + name
@@ -849,7 +893,7 @@ func (g *CGenerator) generateAsyncFunction(fn *ast.FunctionStatement) {
 	pollName := fnName + "_poll"
 
 	var frameDef strings.Builder
-	frameDef.WriteString("typedef struct {\n    int __state;\n")
+	frameDef.WriteString(fmt.Sprintf("struct %s {\n    int __state;\n", frameName))
 	for _, p := range info.Params {
 		frameDef.WriteString(fmt.Sprintf("    %s %s;\n", p.CType, p.Name))
 	}
@@ -860,8 +904,7 @@ func (g *CGenerator) generateAsyncFunction(fn *ast.FunctionStatement) {
 		frameDef.WriteString(fmt.Sprintf("    %s __result;\n", retType))
 	}
 	frameDef.WriteString("    void* __sub_future;\n")
-	frameDef.WriteString(fmt.Sprintf("} %s;\n", frameName))
-	g.closureDefs = append(g.closureDefs, frameDef.String())
+	frameDef.WriteString("};\n")
 
 	var pollFn strings.Builder
 	pollFn.WriteString(fmt.Sprintf("static bool %s(void* __raw_frame, carv_loop* __loop) {\n", pollName))
@@ -879,7 +922,7 @@ func (g *CGenerator) generateAsyncFunction(fn *ast.FunctionStatement) {
 	g.inFunction = true
 	g.funcRetType = retType
 	g.inAsyncFn = true
-	g.asyncFnName = fnName
+	g.asyncFnName = fn.Name.Value
 	g.asyncStateID = 0
 	g.enterScope()
 
@@ -907,12 +950,13 @@ func (g *CGenerator) generateAsyncFunction(fn *ast.FunctionStatement) {
 	g.exitScope()
 	g.inAsyncFn = false
 
-	g.closureDefs = append(g.closureDefs, pollFn.String())
-
 	g.output = oldOutput
 	g.indent = oldIndent
 	g.inFunction = oldInFunction
 	g.funcRetType = oldFuncRetType
+
+	g.writeln(frameDef.String())
+	g.writeln(pollFn.String())
 
 	frameType := frameName + "*"
 	g.writeln(fmt.Sprintf("%s %s(%s) {", frameType, fnName, g.paramsToC(fn.Parameters)))
@@ -980,26 +1024,33 @@ func (g *CGenerator) generateAsyncIfStatement(e *ast.IfExpression) {
 func (g *CGenerator) generateAsyncExpression(expr ast.Expression) string {
 	switch e := expr.(type) {
 	case *ast.Identifier:
-		if g.inAsyncFn {
-			if info := g.asyncFns[g.asyncFnName]; info != nil {
-				for _, p := range info.Params {
-					if p.Name == e.Value {
-						return fmt.Sprintf("f->%s", e.Value)
-					}
-				}
-				for _, l := range info.Locals {
-					if l.Name == e.Value {
-						return fmt.Sprintf("f->%s", e.Value)
-					}
-				}
-			}
-		}
 		return g.generateExpression(expr)
 	case *ast.AwaitExpression:
 		return g.generateAwaitExpression(e)
 	default:
 		return g.generateExpression(expr)
 	}
+}
+
+func (g *CGenerator) asyncFrameVarRef(name string) (string, bool) {
+	if !g.inAsyncFn {
+		return "", false
+	}
+	info := g.asyncFns[g.asyncFnName]
+	if info == nil {
+		return "", false
+	}
+	for _, p := range info.Params {
+		if p.Name == name {
+			return fmt.Sprintf("f->%s", name), true
+		}
+	}
+	for _, l := range info.Locals {
+		if l.Name == name {
+			return fmt.Sprintf("f->%s", name), true
+		}
+	}
+	return "", false
 }
 
 func (g *CGenerator) generateAwaitExpression(e *ast.AwaitExpression) string {
@@ -1625,6 +1676,9 @@ func (g *CGenerator) generateExpression(expr ast.Expression) string {
 			if mapped, ok := g.captureMap[e.Value]; ok {
 				return mapped
 			}
+		}
+		if mapped, ok := g.asyncFrameVarRef(e.Value); ok {
+			return mapped
 		}
 		return g.safeName(e.Value)
 	case *ast.ArrayLiteral:
