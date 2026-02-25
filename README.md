@@ -51,7 +51,7 @@ Features that actually work:
 - **Ownership system** (move semantics, `clone()` for deep copy)
 - **Borrowing** (`&T` / `&mut T`)
 - **Interfaces** (`interface` / `impl` with vtable-based dynamic dispatch)
-- **Async/await** syntax (compiles to state machines)
+- **Async/await** (compiles to state machines)
 - Project config via `carv.toml`
 - 40+ built-in functions (strings, files, process, environment, etc.)
 
@@ -106,7 +106,7 @@ let triple = fn(x: int) -> int {
 };
 println(f"triple(5) = {triple(5)}");
 
-// async/await (syntax preview)
+// async/await
 async fn fetch_data() -> int {
     return 42;
 }
@@ -176,7 +176,7 @@ Then:
 - [x] Interfaces (`interface`/`impl` with vtables)
 - [x] Module system (`require`)
 - [x] String interpolation (`f"..."`)
-- [x] Async/await syntax (codegen ready, runtime WIP)
+- [x] Async/await (state-machine codegen + runtime bootstrap)
 
 ### Tooling
 - [x] Project config (`carv.toml`)

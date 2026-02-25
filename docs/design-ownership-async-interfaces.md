@@ -471,7 +471,7 @@ int64_t Counter_into_value(Counter* self) {
 
 ## Phase 3a: Closures in Codegen
 
-**Prerequisite for async**. Currently `FunctionLiteral` is NOT implemented in codegen.
+**Prerequisite for async**. `FunctionLiteral` codegen is implemented (closures are supported).
 
 ### C Pattern — Lambda Lifting
 

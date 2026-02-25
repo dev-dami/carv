@@ -127,11 +127,10 @@ The goal is self-hosting - writing the Carv compiler in Carv. That means I need:
 3. ~~Ownership system (move + drop)~~ ✓ Done!
 4. ~~Borrowing (&T / &mut T)~~ ✓ Done!
 5. ~~Interfaces (interface/impl)~~ ✓ Done!
-6. Package manager (for external dependencies)
-7. Better standard library
-8. Then rewrite lexer, parser, codegen in Carv
-
-6. Async/await — Next
+6. ~~Async/await~~ ✓ Done!
+7. Package manager (for external dependencies)
+8. Better standard library
+9. Then rewrite lexer, parser, codegen in Carv
 
 It's a long road but that's half the fun. Getting closer though!
 
