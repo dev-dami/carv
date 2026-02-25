@@ -308,3 +308,47 @@ class PrivateClass {}
 		}
 	}
 }
+
+func TestLoaderLoadBuiltinNetModule(t *testing.T) {
+	loader := NewLoader("/tmp/test")
+	mod, err := loader.Load("net", "/tmp/main.carv")
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if mod == nil {
+		t.Fatal("expected builtin module, got nil")
+	}
+	if !mod.IsBuiltin {
+		t.Fatal("expected net module to be builtin")
+	}
+
+	expected := []string{"tcp_listen", "tcp_accept", "tcp_read", "tcp_write", "tcp_close"}
+	for _, name := range expected {
+		if !mod.Exports[name] {
+			t.Fatalf("expected builtin net export %q", name)
+		}
+	}
+}
+
+func TestLoaderLoadBuiltinWebModule(t *testing.T) {
+	loader := NewLoader("/tmp/test")
+	mod, err := loader.Load("web", "/tmp/main.carv")
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if mod == nil {
+		t.Fatal("expected builtin module, got nil")
+	}
+	if !mod.IsBuiltin {
+		t.Fatal("expected web module to be builtin")
+	}
+
+	expected := []string{"tcp_listen", "tcp_accept", "tcp_read", "tcp_write", "tcp_close"}
+	for _, name := range expected {
+		if !mod.Exports[name] {
+			t.Fatalf("expected builtin web export %q", name)
+		}
+	}
+}

@@ -39,6 +39,20 @@ func (l *Loader) SetConfig(cfg *Config) {
 }
 
 func (l *Loader) Load(importPath string, fromFile string) (*Module, error) {
+	if exports, ok := BuiltinModuleExports(importPath); ok {
+		key := "<builtin:" + importPath + ">"
+		if mod, ok := l.loadedFiles[key]; ok {
+			return mod, nil
+		}
+		mod := &Module{
+			Path:      key,
+			Exports:   exports,
+			IsBuiltin: true,
+		}
+		l.loadedFiles[key] = mod
+		return mod, nil
+	}
+
 	resolved, err := l.resolvePath(importPath, fromFile)
 	if err != nil {
 		return nil, err

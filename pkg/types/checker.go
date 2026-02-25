@@ -131,6 +131,26 @@ func (c *Checker) defineBuiltins() {
 	c.scope.Define("append_file", &FunctionType{Params: []Type{String, String}, Return: Void})
 	c.scope.Define("getenv", &FunctionType{Params: []Type{String}, Return: String})
 	c.scope.Define("setenv", &FunctionType{Params: []Type{String, String}, Return: Void})
+	c.scope.Define("tcp_listen", &FunctionType{Params: []Type{String, Int}, Return: Int})
+	c.scope.Define("tcp_accept", &FunctionType{Params: []Type{Int}, Return: Int})
+	c.scope.Define("tcp_read", &FunctionType{Params: []Type{Int, Int}, Return: String})
+	c.scope.Define("tcp_write", &FunctionType{Params: []Type{Int, String}, Return: Int})
+	c.scope.Define("tcp_close", &FunctionType{Params: []Type{Int}, Return: Bool})
+}
+
+func builtinModuleMemberTypes(moduleName string) map[string]Type {
+	switch moduleName {
+	case "net", "web":
+		return map[string]Type{
+			"tcp_listen": &FunctionType{Params: []Type{String, Int}, Return: Int},
+			"tcp_accept": &FunctionType{Params: []Type{Int}, Return: Int},
+			"tcp_read":   &FunctionType{Params: []Type{Int, Int}, Return: String},
+			"tcp_write":  &FunctionType{Params: []Type{Int, String}, Return: Int},
+			"tcp_close":  &FunctionType{Params: []Type{Int}, Return: Bool},
+		}
+	default:
+		return nil
+	}
 }
 
 func (c *Checker) Errors() []string {
@@ -425,11 +445,28 @@ func (c *Checker) checkRequireStatement(s *ast.RequireStatement) {
 	if s.Alias != nil {
 		c.scope.Define(s.Alias.Value, &ModuleType{Name: s.Path.Value})
 	} else if len(s.Names) > 0 {
-		for _, name := range s.Names {
-			c.scope.Define(name.Value, Any)
+		if members := builtinModuleMemberTypes(s.Path.Value); members != nil {
+			for _, name := range s.Names {
+				if t, ok := members[name.Value]; ok {
+					c.scope.Define(name.Value, t)
+				} else {
+					line, col := name.Pos()
+					c.error(line, col, "undefined export: %s", name.Value)
+				}
+			}
+			return
+		}
+		for _, n := range s.Names {
+			c.scope.Define(n.Value, Any)
 		}
 	} else if s.All {
-		// Wildcard imports resolved at runtime; define synthetic binding to avoid undefined errors
+		if members := builtinModuleMemberTypes(s.Path.Value); members != nil {
+			for name, t := range members {
+				c.scope.Define(name, t)
+			}
+			return
+		}
+		// Wildcard imports for non-builtin modules are resolved at runtime.
 		c.scope.Define(s.Path.Value, &ModuleType{Name: s.Path.Value})
 	}
 }
@@ -821,6 +858,18 @@ func (c *Checker) checkMemberExpression(e *ast.MemberExpression) Type {
 
 	if result := c.checkMemberExpressionForInterface(e, objType); result != nil {
 		return result
+	}
+
+	if mod, ok := objType.(*ModuleType); ok {
+		if members := builtinModuleMemberTypes(mod.Name); members != nil {
+			if t, exists := members[e.Member.Value]; exists {
+				return t
+			}
+			line, col := e.Member.Pos()
+			c.error(line, col, "undefined member %s on module %s", e.Member.Value, mod.Name)
+			return Any
+		}
+		return Any
 	}
 
 	if cls, ok := objType.(*ClassType); ok {

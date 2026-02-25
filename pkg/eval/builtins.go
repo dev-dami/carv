@@ -3,13 +3,20 @@ package eval
 import (
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 var cliArgs []string
+var tcpMu sync.Mutex
+var tcpNextHandle int64 = 1
+var tcpListeners = map[int64]net.Listener{}
+var tcpConns = map[int64]net.Conn{}
 
 func SetArgs(args []string) {
 	cliArgs = args
@@ -618,6 +625,140 @@ var builtins = map[string]*Builtin{
 			return &Array{Elements: elements}
 		},
 	},
+	"tcp_listen": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 2 {
+				return newError("tcp_listen() takes exactly 2 arguments")
+			}
+			host, ok := args[0].(*String)
+			if !ok {
+				return newError("tcp_listen() first argument must be a string")
+			}
+			port, ok := args[1].(*Integer)
+			if !ok {
+				return newError("tcp_listen() second argument must be an integer")
+			}
+
+			addr := fmt.Sprintf("%s:%d", host.Value, port.Value)
+			ln, err := net.Listen("tcp", addr)
+			if err != nil {
+				return newError("tcp_listen: %s", err.Error())
+			}
+
+			handle := tcpAllocHandle()
+			tcpMu.Lock()
+			tcpListeners[handle] = ln
+			tcpMu.Unlock()
+			return &Integer{Value: handle}
+		},
+	},
+	"tcp_accept": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 1 {
+				return newError("tcp_accept() takes exactly 1 argument")
+			}
+			listenerHandle, ok := args[0].(*Integer)
+			if !ok {
+				return newError("tcp_accept() argument must be an integer listener handle")
+			}
+
+			tcpMu.Lock()
+			ln, exists := tcpListeners[listenerHandle.Value]
+			tcpMu.Unlock()
+			if !exists {
+				return newError("tcp_accept: invalid listener handle %d", listenerHandle.Value)
+			}
+
+			conn, err := ln.Accept()
+			if err != nil {
+				return newError("tcp_accept: %s", err.Error())
+			}
+
+			connHandle := tcpAllocHandle()
+			tcpMu.Lock()
+			tcpConns[connHandle] = conn
+			tcpMu.Unlock()
+			return &Integer{Value: connHandle}
+		},
+	},
+	"tcp_read": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 2 {
+				return newError("tcp_read() takes exactly 2 arguments")
+			}
+			connHandle, ok := args[0].(*Integer)
+			if !ok {
+				return newError("tcp_read() first argument must be an integer connection handle")
+			}
+			maxBytes, ok := args[1].(*Integer)
+			if !ok {
+				return newError("tcp_read() second argument must be an integer")
+			}
+			if maxBytes.Value <= 0 {
+				return &String{Value: ""}
+			}
+
+			tcpMu.Lock()
+			conn, exists := tcpConns[connHandle.Value]
+			tcpMu.Unlock()
+			if !exists {
+				return newError("tcp_read: invalid connection handle %d", connHandle.Value)
+			}
+
+			buf := make([]byte, maxBytes.Value)
+			n, err := conn.Read(buf)
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					return &String{Value: ""}
+				}
+				return newError("tcp_read: %s", err.Error())
+			}
+			return &String{Value: string(buf[:n])}
+		},
+	},
+	"tcp_write": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 2 {
+				return newError("tcp_write() takes exactly 2 arguments")
+			}
+			connHandle, ok := args[0].(*Integer)
+			if !ok {
+				return newError("tcp_write() first argument must be an integer connection handle")
+			}
+			data, ok := args[1].(*String)
+			if !ok {
+				return newError("tcp_write() second argument must be a string")
+			}
+
+			tcpMu.Lock()
+			conn, exists := tcpConns[connHandle.Value]
+			tcpMu.Unlock()
+			if !exists {
+				return newError("tcp_write: invalid connection handle %d", connHandle.Value)
+			}
+
+			n, err := conn.Write([]byte(data.Value))
+			if err != nil {
+				return newError("tcp_write: %s", err.Error())
+			}
+			return &Integer{Value: int64(n)}
+		},
+	},
+	"tcp_close": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 1 {
+				return newError("tcp_close() takes exactly 1 argument")
+			}
+			handle, ok := args[0].(*Integer)
+			if !ok {
+				return newError("tcp_close() argument must be an integer handle")
+			}
+			if err := tcpCloseHandle(handle.Value); err != nil {
+				return newError("tcp_close: %s", err.Error())
+			}
+			return TRUE
+		},
+	},
 	"exec": {
 		Fn: func(args ...Object) Object {
 			if len(args) < 1 {
@@ -755,4 +896,27 @@ var builtins = map[string]*Builtin{
 
 func newError(format string, a ...interface{}) *Error {
 	return &Error{Message: fmt.Sprintf(format, a...)}
+}
+
+func tcpAllocHandle() int64 {
+	tcpMu.Lock()
+	defer tcpMu.Unlock()
+	handle := tcpNextHandle
+	tcpNextHandle++
+	return handle
+}
+
+func tcpCloseHandle(handle int64) error {
+	tcpMu.Lock()
+	defer tcpMu.Unlock()
+
+	if conn, ok := tcpConns[handle]; ok {
+		delete(tcpConns, handle)
+		return conn.Close()
+	}
+	if ln, ok := tcpListeners[handle]; ok {
+		delete(tcpListeners, handle)
+		return ln.Close()
+	}
+	return fmt.Errorf("invalid handle %d", handle)
 }

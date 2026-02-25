@@ -73,6 +73,8 @@ Currently targets C99. Key features:
 - **Borrow support**: `&T` → `const T*`, `&mut T` → `T*`
 - **Interface dispatch**: vtable-based dynamic dispatch via fat pointers
 - **Arena allocator**: used for all owned heap values
+- **Async/await lowering**: `async fn` to frame structs + poll state machines
+- **Async runtime bootstrap**: generated `main()` drives `async fn carv_main()` via event loop
 
 #### Interface Codegen
 
@@ -98,6 +100,7 @@ Key files:
 Supports:
 - Relative imports (`./utils`, `../lib/math`)
 - Project-local imports (from `src/` directory)
+- Built-in standard modules (`net`, `web`)
 - Future: external packages (from `carv_modules/`)
 
 ### `cmd/carv`

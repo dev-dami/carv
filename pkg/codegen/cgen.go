@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/dev-dami/carv/pkg/ast"
+	"github.com/dev-dami/carv/pkg/module"
 	"github.com/dev-dami/carv/pkg/types"
 )
 
@@ -57,6 +58,7 @@ type CGenerator struct {
 	inAsyncFn       bool
 	asyncFnName     string
 	asyncStateID    int
+	builtinAliases  map[string]string
 }
 
 type asyncFnInfo struct {
@@ -73,10 +75,11 @@ type paramInfo struct {
 
 func NewCGenerator() *CGenerator {
 	g := &CGenerator{
-		arrayLengths:  make(map[string]int),
-		fnReturnTypes: make(map[string]string),
-		interfaces:    make(map[string]*interfaceInfo),
-		asyncFns:      make(map[string]*asyncFnInfo),
+		arrayLengths:   make(map[string]int),
+		fnReturnTypes:  make(map[string]string),
+		interfaces:     make(map[string]*interfaceInfo),
+		asyncFns:       make(map[string]*asyncFnInfo),
+		builtinAliases: make(map[string]string),
 	}
 	g.scope = newScope(nil)
 	return g
@@ -344,6 +347,7 @@ func (g *CGenerator) inferResultPayloadTypes(body *ast.BlockStatement) (okType, 
 }
 
 func (g *CGenerator) Generate(program *ast.Program) string {
+	g.collectBuiltinModuleAliases(program)
 	g.collectFunctionReturnTypes(program)
 	g.collectInterfacesAndImpls(program)
 	g.collectAsyncFunctions(program)
@@ -438,11 +442,35 @@ func (g *CGenerator) Generate(program *ast.Program) string {
 	return g.output.String()
 }
 
+func (g *CGenerator) collectBuiltinModuleAliases(program *ast.Program) {
+	for _, stmt := range program.Statements {
+		req, ok := stmt.(*ast.RequireStatement)
+		if !ok || req.Path == nil {
+			continue
+		}
+		if !module.IsBuiltinModule(req.Path.Value) {
+			continue
+		}
+		if req.Alias != nil {
+			g.builtinAliases[req.Alias.Value] = req.Path.Value
+			continue
+		}
+		if len(req.Names) == 0 && !req.All {
+			g.builtinAliases[req.Path.Value] = req.Path.Value
+		}
+	}
+}
+
 func (g *CGenerator) emitRuntime() {
 	g.writeln("#include <stdio.h>")
 	g.writeln("#include <stdlib.h>")
 	g.writeln("#include <string.h>")
 	g.writeln("#include <stdbool.h>")
+	g.writeln("#include <unistd.h>")
+	g.writeln("#include <sys/types.h>")
+	g.writeln("#include <sys/socket.h>")
+	g.writeln("#include <netinet/in.h>")
+	g.writeln("#include <arpa/inet.h>")
 	g.writeln("")
 	g.writeln("// Arena allocator for automatic memory management")
 	g.writeln("#define CARV_ARENA_BLOCK_SIZE (1024 * 1024)  // 1MB blocks")
@@ -644,6 +672,66 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("    FILE* f = fopen(path.data, \"r\");")
 	g.writeln("    if (f) { fclose(f); return true; }")
 	g.writeln("    return false;")
+	g.writeln("}")
+	g.writeln("")
+
+	g.writeln("carv_int carv_tcp_listen(carv_string host, carv_int port) {")
+	g.writeln("    int fd = socket(AF_INET, SOCK_STREAM, 0);")
+	g.writeln("    if (fd < 0) return -1;")
+	g.writeln("    int opt = 1;")
+	g.writeln("    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));")
+	g.writeln("    struct sockaddr_in addr;")
+	g.writeln("    memset(&addr, 0, sizeof(addr));")
+	g.writeln("    addr.sin_family = AF_INET;")
+	g.writeln("    addr.sin_port = htons((uint16_t)port);")
+	g.writeln("    if (!host.data || host.len == 0 || strcmp(host.data, \"0.0.0.0\") == 0) {")
+	g.writeln("        addr.sin_addr.s_addr = INADDR_ANY;")
+	g.writeln("    } else if (inet_pton(AF_INET, host.data, &addr.sin_addr) <= 0) {")
+	g.writeln("        close(fd);")
+	g.writeln("        return -1;")
+	g.writeln("    }")
+	g.writeln("    if (bind(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {")
+	g.writeln("        close(fd);")
+	g.writeln("        return -1;")
+	g.writeln("    }")
+	g.writeln("    if (listen(fd, 16) < 0) {")
+	g.writeln("        close(fd);")
+	g.writeln("        return -1;")
+	g.writeln("    }")
+	g.writeln("    return fd;")
+	g.writeln("}")
+	g.writeln("")
+
+	g.writeln("carv_int carv_tcp_accept(carv_int listener_fd) {")
+	g.writeln("    int conn_fd = accept((int)listener_fd, NULL, NULL);")
+	g.writeln("    if (conn_fd < 0) return -1;")
+	g.writeln("    return conn_fd;")
+	g.writeln("}")
+	g.writeln("")
+
+	g.writeln("carv_string carv_tcp_read(carv_int conn_fd, carv_int max_bytes) {")
+	g.writeln("    if (max_bytes <= 0) return carv_strdup_str(\"\");")
+	g.writeln("    char* buf = (char*)carv_arena_alloc((size_t)max_bytes + 1);")
+	g.writeln("    ssize_t n = recv((int)conn_fd, buf, (size_t)max_bytes, 0);")
+	g.writeln("    if (n <= 0) {")
+	g.writeln("        buf[0] = '\\0';")
+	g.writeln("        return carv_string_own(buf, 0);")
+	g.writeln("    }")
+	g.writeln("    buf[n] = '\\0';")
+	g.writeln("    return carv_string_own(buf, (size_t)n);")
+	g.writeln("}")
+	g.writeln("")
+
+	g.writeln("carv_int carv_tcp_write(carv_int conn_fd, carv_string data) {")
+	g.writeln("    if (!data.data || data.len == 0) return 0;")
+	g.writeln("    ssize_t n = send((int)conn_fd, data.data, data.len, 0);")
+	g.writeln("    if (n < 0) return -1;")
+	g.writeln("    return (carv_int)n;")
+	g.writeln("}")
+	g.writeln("")
+
+	g.writeln("carv_bool carv_tcp_close(carv_int fd) {")
+	g.writeln("    return close((int)fd) == 0;")
 	g.writeln("}")
 	g.writeln("")
 
@@ -1823,6 +1911,9 @@ func (g *CGenerator) generateAssignExpression(e *ast.AssignExpression) string {
 
 func (g *CGenerator) generateCallExpression(e *ast.CallExpression) string {
 	if member, ok := e.Function.(*ast.MemberExpression); ok {
+		if lowered, ok := g.generateBuiltinModuleCall(member, e.Arguments); ok {
+			return lowered
+		}
 		return g.generateMethodCall(member, e.Arguments)
 	}
 
@@ -1866,6 +1957,34 @@ func (g *CGenerator) generateCallExpression(e *ast.CallExpression) string {
 	if fn == "file_exists" && len(e.Arguments) == 1 {
 		arg := g.generateExpression(e.Arguments[0])
 		return fmt.Sprintf("carv_file_exists(%s)", arg)
+	}
+
+	if fn == "tcp_listen" && len(e.Arguments) == 2 {
+		host := g.generateExpression(e.Arguments[0])
+		port := g.generateExpression(e.Arguments[1])
+		return fmt.Sprintf("carv_tcp_listen(%s, %s)", host, port)
+	}
+
+	if fn == "tcp_accept" && len(e.Arguments) == 1 {
+		listener := g.generateExpression(e.Arguments[0])
+		return fmt.Sprintf("carv_tcp_accept(%s)", listener)
+	}
+
+	if fn == "tcp_read" && len(e.Arguments) == 2 {
+		conn := g.generateExpression(e.Arguments[0])
+		maxBytes := g.generateExpression(e.Arguments[1])
+		return fmt.Sprintf("carv_tcp_read(%s, %s)", conn, maxBytes)
+	}
+
+	if fn == "tcp_write" && len(e.Arguments) == 2 {
+		conn := g.generateExpression(e.Arguments[0])
+		data := g.generateExpression(e.Arguments[1])
+		return fmt.Sprintf("carv_tcp_write(%s, %s)", conn, data)
+	}
+
+	if fn == "tcp_close" && len(e.Arguments) == 1 {
+		fd := g.generateExpression(e.Arguments[0])
+		return fmt.Sprintf("carv_tcp_close(%s)", fd)
 	}
 
 	if fn == "split" && len(e.Arguments) == 2 {
@@ -1912,6 +2031,55 @@ func (g *CGenerator) generateCallExpression(e *ast.CallExpression) string {
 		args = append(args, g.generateExpression(arg))
 	}
 	return fmt.Sprintf("%s(%s)", fn, strings.Join(args, ", "))
+}
+
+func (g *CGenerator) generateBuiltinModuleCall(member *ast.MemberExpression, args []ast.Expression) (string, bool) {
+	ident, ok := member.Object.(*ast.Identifier)
+	if !ok {
+		return "", false
+	}
+	moduleName, ok := g.builtinAliases[ident.Value]
+	if !ok || !module.IsBuiltinModule(moduleName) {
+		return "", false
+	}
+
+	switch member.Member.Value {
+	case "tcp_listen":
+		if len(args) != 2 {
+			return "", false
+		}
+		host := g.generateExpression(args[0])
+		port := g.generateExpression(args[1])
+		return fmt.Sprintf("carv_tcp_listen(%s, %s)", host, port), true
+	case "tcp_accept":
+		if len(args) != 1 {
+			return "", false
+		}
+		listener := g.generateExpression(args[0])
+		return fmt.Sprintf("carv_tcp_accept(%s)", listener), true
+	case "tcp_read":
+		if len(args) != 2 {
+			return "", false
+		}
+		conn := g.generateExpression(args[0])
+		maxBytes := g.generateExpression(args[1])
+		return fmt.Sprintf("carv_tcp_read(%s, %s)", conn, maxBytes), true
+	case "tcp_write":
+		if len(args) != 2 {
+			return "", false
+		}
+		conn := g.generateExpression(args[0])
+		data := g.generateExpression(args[1])
+		return fmt.Sprintf("carv_tcp_write(%s, %s)", conn, data), true
+	case "tcp_close":
+		if len(args) != 1 {
+			return "", false
+		}
+		fd := g.generateExpression(args[0])
+		return fmt.Sprintf("carv_tcp_close(%s)", fd), true
+	default:
+		return "", false
+	}
 }
 
 func (g *CGenerator) generateMethodCall(member *ast.MemberExpression, args []ast.Expression) string {
@@ -2357,6 +2525,12 @@ func (g *CGenerator) inferCallType(e *ast.CallExpression) string {
 			return "carv_string_array"
 		case "file_exists", "write_file":
 			return "carv_bool"
+		case "tcp_read":
+			return "carv_string"
+		case "tcp_close":
+			return "carv_bool"
+		case "tcp_listen", "tcp_accept", "tcp_write":
+			return "carv_int"
 		case "len":
 			return "carv_int"
 		}
@@ -2739,6 +2913,7 @@ func (g *CGenerator) escapeString(s string) string {
 	s = strings.ReplaceAll(s, "\\", "\\\\")
 	s = strings.ReplaceAll(s, "\"", "\\\"")
 	s = strings.ReplaceAll(s, "\n", "\\n")
+	s = strings.ReplaceAll(s, "\r", "\\r")
 	s = strings.ReplaceAll(s, "\t", "\\t")
 	return s
 }

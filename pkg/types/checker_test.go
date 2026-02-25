@@ -60,6 +60,63 @@ let result = add(5, 3);
 	}
 }
 
+func TestTypeCheckerTCPBuiltins(t *testing.T) {
+	input := `
+let listener = tcp_listen("127.0.0.1", 8080);
+let conn = tcp_accept(listener);
+let data = tcp_read(conn, 1024);
+let n = tcp_write(conn, data);
+tcp_close(conn);
+tcp_close(listener);
+print(n);
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected type errors: %v", checker.Errors())
+	}
+}
+
+func TestTypeCheckerBuiltinNetModuleAlias(t *testing.T) {
+	input := `
+require "net" as net;
+let data = net.tcp_read(1, 64);
+print(data);
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if !ok {
+		t.Fatalf("unexpected type errors: %v", checker.Errors())
+	}
+}
+
+func TestTypeCheckerBuiltinNetModuleAliasArityError(t *testing.T) {
+	input := `
+require "net" as net;
+let listener = net.tcp_listen("127.0.0.1");
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	checker := NewChecker()
+	ok := checker.Check(program)
+
+	if ok {
+		t.Fatalf("expected type error for wrong tcp_listen arity")
+	}
+}
+
 func TestTypeCheckerPipes(t *testing.T) {
 	input := `
 fn double(x: int) -> int {

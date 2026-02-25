@@ -52,6 +52,7 @@ Features that actually work:
 - **Borrowing** (`&T` / `&mut T`)
 - **Interfaces** (`interface` / `impl` with vtable-based dynamic dispatch)
 - **Async/await** (compiles to state machines)
+- **Built-in `net`/`web` modules** for native TCP (`tcp_listen`, `tcp_accept`, `tcp_read`, `tcp_write`, `tcp_close`)
 - Project config via `carv.toml`
 - 40+ built-in functions (strings, files, process, environment, etc.)
 
@@ -110,6 +111,12 @@ println(f"triple(5) = {triple(5)}");
 async fn fetch_data() -> int {
     return 42;
 }
+
+async fn carv_main() -> int {
+    let value = await fetch_data();
+    println(value);
+    return 0;
+}
 ```
 
 ### Modules
@@ -123,6 +130,11 @@ pub fn add(a: int, b: int) -> int {
 // main.carv
 require { add } from "./math";
 println(f"1 + 2 = {add(1, 2)}");
+
+// builtin module
+require "net" as net;
+let listener = net.tcp_listen("127.0.0.1", 8080);
+net.tcp_close(listener);
 ```
 
 ---
@@ -143,6 +155,8 @@ Then:
 ./build/carv init               # create new project with carv.toml
 ./build/carv repl               # mess around
 ```
+
+For async programs compiled with `carv build`, use `async fn carv_main() -> int` as the async entrypoint.
 
 ---
 
@@ -175,6 +189,7 @@ Then:
 ### Advanced Features
 - [x] Interfaces (`interface`/`impl` with vtables)
 - [x] Module system (`require`)
+- [x] Built-in `net`/`web` modules
 - [x] String interpolation (`f"..."`)
 - [x] Async/await (state-machine codegen + runtime bootstrap)
 

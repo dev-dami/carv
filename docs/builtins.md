@@ -335,6 +335,52 @@ Create a directory (and parent directories).
 mkdir("build/output");
 ```
 
+## Networking (TCP)
+
+Use these via the built-in `net` or `web` module:
+
+```carv
+require "net" as net;
+```
+
+`net` and `web` currently expose the same low-level TCP primitives.
+
+### `tcp_listen(host, port) -> int`
+Create a TCP listener and return a listener handle.
+
+```carv
+let listener = net.tcp_listen("127.0.0.1", 8080);
+```
+
+### `tcp_accept(listener) -> int`
+Accept one incoming TCP connection and return a connection handle.
+
+```carv
+let conn = net.tcp_accept(listener);
+```
+
+### `tcp_read(conn, max_bytes) -> string`
+Read up to `max_bytes` bytes from a TCP connection.
+
+```carv
+let request = net.tcp_read(conn, 4096);
+```
+
+### `tcp_write(conn, data) -> int`
+Write string data to a TCP connection. Returns number of bytes written.
+
+```carv
+let wrote = net.tcp_write(conn, "hello");
+```
+
+### `tcp_close(handle) -> bool`
+Close a listener or connection handle.
+
+```carv
+net.tcp_close(conn);
+net.tcp_close(listener);
+```
+
 ## Control Flow
 
 ### `exit(code?)`

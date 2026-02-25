@@ -1,7 +1,10 @@
 package eval
 
 import (
+	"fmt"
+	"net"
 	"testing"
+	"time"
 
 	"github.com/dev-dami/carv/pkg/lexer"
 	"github.com/dev-dami/carv/pkg/parser"
@@ -955,6 +958,96 @@ content;
 	testBooleanObject(t, evaluated3, false)
 }
 
+func TestBuiltinNetModuleNamedImport(t *testing.T) {
+	input := `
+require { tcp_close } from "net";
+type_of(tcp_close);
+`
+	evaluated := testEval(input)
+	str, ok := evaluated.(*String)
+	if !ok {
+		t.Fatalf("expected String, got %T (%s)", evaluated, evaluated.Inspect())
+	}
+	if str.Value != "BUILTIN" {
+		t.Fatalf("expected BUILTIN, got %q", str.Value)
+	}
+}
+
+func TestBuiltinNetModuleAliasMemberAccess(t *testing.T) {
+	input := `
+require "net" as net;
+type_of(net.tcp_close);
+`
+	evaluated := testEval(input)
+	str, ok := evaluated.(*String)
+	if !ok {
+		t.Fatalf("expected String, got %T (%s)", evaluated, evaluated.Inspect())
+	}
+	if str.Value != "BUILTIN" {
+		t.Fatalf("expected BUILTIN, got %q", str.Value)
+	}
+}
+
+func TestBuiltinTCPServerEcho(t *testing.T) {
+	port := getFreeTCPPort(t)
+
+	clientDone := make(chan string, 1)
+	go func() {
+		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		var conn net.Conn
+		var err error
+		for i := 0; i < 100; i++ {
+			conn, err = net.DialTimeout("tcp", addr, 50*time.Millisecond)
+			if err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if err != nil {
+			clientDone <- "dial_failed"
+			return
+		}
+		defer conn.Close()
+
+		_, err = conn.Write([]byte("ping"))
+		if err != nil {
+			clientDone <- "write_failed"
+			return
+		}
+
+		buf := make([]byte, 32)
+		n, err := conn.Read(buf)
+		if err != nil {
+			clientDone <- "read_failed"
+			return
+		}
+
+		clientDone <- string(buf[:n])
+	}()
+
+	input := fmt.Sprintf(`
+let listener = tcp_listen("127.0.0.1", %d);
+let conn = tcp_accept(listener);
+let req = tcp_read(conn, 64);
+let wrote = tcp_write(conn, req);
+tcp_close(conn);
+tcp_close(listener);
+wrote;
+`, port)
+
+	evaluated := testEval(input)
+	testIntegerObject(t, evaluated, 4)
+
+	select {
+	case got := <-clientDone:
+		if got != "ping" {
+			t.Fatalf("expected echoed payload 'ping', got %q", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for tcp client response")
+	}
+}
+
 func TestDivisionByZero(t *testing.T) {
 	input := `10 / 0;`
 	evaluated := testEval(input)
@@ -1019,4 +1112,14 @@ func testNilObject(t *testing.T, obj Object) bool {
 		return false
 	}
 	return true
+}
+
+func getFreeTCPPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to reserve tcp port: %v", err)
+	}
+	defer ln.Close()
+	return ln.Addr().(*net.TCPAddr).Port
 }

@@ -272,6 +272,29 @@ fn greet(name: string) {
 let double = fn(x: int) -> int { return x * 2; };
 ```
 
+## Async / Await
+
+Carv supports `async fn` and `await`. Async functions are compiled into state machines in C codegen.
+
+```carv
+async fn fetch_data() -> int {
+    return 42;
+}
+
+async fn carv_main() -> int {
+    let v = await fetch_data();
+    println(v);
+    return 0;
+}
+```
+
+### Rules
+
+- `await` can only be used inside `async fn`.
+- `await` expects an async/future-producing expression.
+- Async locals captured across suspension points are stored in generated async frames.
+- For compiled async programs (`carv build`), use `async fn carv_main() -> int` as entrypoint.
+
 ## Pipe Operator
 
 This is my favorite feature. Pass results through a chain of functions:
@@ -374,11 +397,14 @@ require { add, subtract } from "./math";
 
 // import all exports
 require * from "./math";
+
+// import builtin stdlib module
+require "net" as net;
 ```
 
 ### Exporting
 
-Use `pub` to mark functions and classes as public:
+Use `pub` to mark functions, classes, constants, and variables as public:
 
 ```carv
 // math.carv
@@ -395,8 +421,8 @@ fn helper() {
     // ...
 }
 
-// constants don't support visibility modifiers (no `pub` keyword)
-const PI = 3.14159;
+pub const PI = 3.14159;
+pub let VERSION = "0.2.0";
 ```
 
 ### Project Structure
@@ -502,6 +528,14 @@ fn calculate() -> Result {
 - `append_file(path, content)` - append to file
 - `file_exists(path)` - check if file exists
 - `mkdir(path)` - create directory
+
+### Networking (TCP)
+- Import built-in module: `require "net" as net;` (or `require "web" as web;`)
+- `net.tcp_listen(host, port)` - create listener, return handle
+- `net.tcp_accept(listener)` - accept connection, return handle
+- `net.tcp_read(conn, max_bytes)` - read bytes, return string
+- `net.tcp_write(conn, data)` - write string, return bytes written
+- `net.tcp_close(handle)` - close listener/connection handle
 
 ### Process & Environment
 - `args()` - get CLI arguments

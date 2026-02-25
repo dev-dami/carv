@@ -291,6 +291,7 @@ func TestEscapeString(t *testing.T) {
 	}{
 		{"hello", "hello"},
 		{"hello\nworld", "hello\\nworld"},
+		{"hello\rworld", "hello\\rworld"},
 		{"tab\there", "tab\\there"},
 		{`quote"here`, `quote\"here`},
 	}
@@ -1119,5 +1120,66 @@ fn sync_func() -> int {
 	}
 	if strings.Contains(output, "carv_task") {
 		t.Errorf("expected no carv_task for sync code, got:\n%s", output)
+	}
+}
+
+func TestTCPBuiltinsLowerToRuntimeCalls(t *testing.T) {
+	output := generateOutputFromSource(t, `
+fn main() {
+	let listener = tcp_listen("127.0.0.1", 8080);
+	let conn = tcp_accept(listener);
+	let req = tcp_read(conn, 64);
+	let wrote = tcp_write(conn, req);
+	tcp_close(conn);
+	tcp_close(listener);
+	println(wrote);
+}
+`)
+
+	if !strings.Contains(output, "carv_tcp_listen(") {
+		t.Fatalf("expected tcp_listen lowering to carv_tcp_listen, got:\n%s", output)
+	}
+	if !strings.Contains(output, "carv_tcp_accept(") {
+		t.Fatalf("expected tcp_accept lowering to carv_tcp_accept, got:\n%s", output)
+	}
+	if !strings.Contains(output, "carv_tcp_read(") {
+		t.Fatalf("expected tcp_read lowering to carv_tcp_read, got:\n%s", output)
+	}
+	if !strings.Contains(output, "carv_tcp_write(") {
+		t.Fatalf("expected tcp_write lowering to carv_tcp_write, got:\n%s", output)
+	}
+	if !strings.Contains(output, "carv_tcp_close(") {
+		t.Fatalf("expected tcp_close lowering to carv_tcp_close, got:\n%s", output)
+	}
+}
+
+func TestTCPBuiltinsGeneratedCCompiles(t *testing.T) {
+	output := generateOutputFromSource(t, `
+fn main() {
+	let listener = tcp_listen("127.0.0.1", 8080);
+	tcp_close(listener);
+}
+`)
+
+	compileGeneratedC(t, output)
+}
+
+func TestTCPBuiltinsModuleAliasLowering(t *testing.T) {
+	output := generateOutputFromSource(t, `
+require "net" as net;
+fn main() {
+	let listener = net.tcp_listen("127.0.0.1", 8080);
+	net.tcp_close(listener);
+}
+`)
+
+	if !strings.Contains(output, "carv_tcp_listen(") {
+		t.Fatalf("expected module alias net.tcp_listen to lower to carv_tcp_listen, got:\n%s", output)
+	}
+	if !strings.Contains(output, "carv_tcp_close(") {
+		t.Fatalf("expected module alias net.tcp_close to lower to carv_tcp_close, got:\n%s", output)
+	}
+	if strings.Contains(output, "Unknown_tcp_listen(") || strings.Contains(output, "Unknown_tcp_close(") {
+		t.Fatalf("expected no Unknown_* module call lowering artifacts, got:\n%s", output)
 	}
 }
