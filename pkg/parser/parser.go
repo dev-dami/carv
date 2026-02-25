@@ -489,6 +489,13 @@ func (p *Parser) parseClassStatement() *ast.ClassStatement {
 			if method != nil {
 				stmt.Methods = append(stmt.Methods, method)
 			}
+		} else if p.curTokenIs(lexer.TOKEN_ASYNC) && p.peekTokenIs(lexer.TOKEN_FN) {
+			p.nextToken()
+			method := p.parseMethodDecl()
+			if method != nil {
+				method.Async = true
+				stmt.Methods = append(stmt.Methods, method)
+			}
 		} else if p.curTokenIs(lexer.TOKEN_IDENT) {
 			field := p.parseFieldDecl()
 			if field != nil {
@@ -1514,6 +1521,13 @@ func (p *Parser) parseImplStatement() *ast.ImplStatement {
 		if p.curTokenIs(lexer.TOKEN_FN) {
 			method := p.parseImplMethodDecl()
 			if method != nil {
+				stmt.Methods = append(stmt.Methods, method)
+			}
+		} else if p.curTokenIs(lexer.TOKEN_ASYNC) && p.peekTokenIs(lexer.TOKEN_FN) {
+			p.nextToken()
+			method := p.parseImplMethodDecl()
+			if method != nil {
+				method.Async = true
 				stmt.Methods = append(stmt.Methods, method)
 			}
 		}

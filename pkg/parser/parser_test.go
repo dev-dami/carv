@@ -911,6 +911,68 @@ func TestPubAsyncFn(t *testing.T) {
 	}
 }
 
+func TestAsyncClassMethodParsing(t *testing.T) {
+	input := `class Worker {
+	async fn run(&self) -> int {
+		return 1;
+	}
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+
+	cls, ok := program.Statements[0].(*ast.ClassStatement)
+	if !ok {
+		t.Fatalf("expected ClassStatement, got %T", program.Statements[0])
+	}
+	if len(cls.Methods) != 1 {
+		t.Fatalf("expected 1 method, got %d", len(cls.Methods))
+	}
+	if cls.Methods[0].Name.Value != "run" {
+		t.Fatalf("expected method name 'run', got %s", cls.Methods[0].Name.Value)
+	}
+	if !cls.Methods[0].Async {
+		t.Fatal("expected async class method to have Async=true")
+	}
+}
+
+func TestAsyncImplMethodParsing(t *testing.T) {
+	input := `impl Runner for Worker {
+	async fn run(&self) -> int {
+		return 1;
+	}
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+
+	implStmt, ok := program.Statements[0].(*ast.ImplStatement)
+	if !ok {
+		t.Fatalf("expected ImplStatement, got %T", program.Statements[0])
+	}
+	if len(implStmt.Methods) != 1 {
+		t.Fatalf("expected 1 method, got %d", len(implStmt.Methods))
+	}
+	if implStmt.Methods[0].Name.Value != "run" {
+		t.Fatalf("expected method name 'run', got %s", implStmt.Methods[0].Name.Value)
+	}
+	if !implStmt.Methods[0].Async {
+		t.Fatal("expected async impl method to have Async=true")
+	}
+}
+
 func checkParserErrors(t *testing.T, p *Parser) {
 	errors := p.Errors()
 	if len(errors) == 0 {
