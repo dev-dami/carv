@@ -1,12 +1,48 @@
 package codegen
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/dev-dami/carv/pkg/lexer"
 	"github.com/dev-dami/carv/pkg/parser"
 )
+
+func generateOutputFromSource(t *testing.T, input string) string {
+	t.Helper()
+	gen := NewCGenerator()
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+	return gen.Generate(program)
+}
+
+func compileGeneratedC(t *testing.T, source string) {
+	t.Helper()
+	if _, err := exec.LookPath("gcc"); err != nil {
+		t.Skip("gcc not found; skipping emitted C compile test")
+	}
+
+	tmpDir := t.TempDir()
+	cFile := filepath.Join(tmpDir, "out.c")
+	outBin := filepath.Join(tmpDir, "out")
+
+	if err := os.WriteFile(cFile, []byte(source), 0o644); err != nil {
+		t.Fatalf("failed to write generated C file: %v", err)
+	}
+
+	cmd := exec.Command("gcc", "-O2", "-o", outBin, cFile)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("gcc failed to compile emitted C: %v\n%s", err, string(output))
+	}
+}
 
 func TestGenerateEmptyProgram(t *testing.T) {
 	gen := NewCGenerator()
@@ -980,6 +1016,86 @@ async fn carv_main() -> int {
 	if !strings.Contains(output, "carv_loop_run") {
 		t.Errorf("expected carv_loop_run call, got:\n%s", output)
 	}
+}
+
+func TestAsyncFrameTypedefEmittedBeforeUse(t *testing.T) {
+	output := generateOutputFromSource(t, `
+async fn fetch() -> int {
+	return 1;
+}
+`)
+
+	forwardIdx := strings.Index(output, "typedef struct fetch_frame fetch_frame;")
+	declIdx := strings.Index(output, "fetch_frame* fetch(void);")
+	defIdx := strings.Index(output, "struct fetch_frame {")
+	ctorIdx := strings.Index(output, "fetch_frame* fetch(void) {")
+
+	if forwardIdx == -1 {
+		t.Fatalf("expected fetch_frame forward typedef in output, got:\n%s", output)
+	}
+	if declIdx == -1 {
+		t.Fatalf("expected fetch declaration using fetch_frame in output, got:\n%s", output)
+	}
+	if defIdx == -1 || ctorIdx == -1 {
+		t.Fatalf("expected frame struct definition and constructor in output, got:\n%s", output)
+	}
+	if forwardIdx > declIdx {
+		t.Fatalf("expected fetch_frame forward typedef before declaration; forwardIdx=%d declIdx=%d", forwardIdx, declIdx)
+	}
+	if defIdx > ctorIdx {
+		t.Fatalf("expected fetch_frame definition before constructor; defIdx=%d ctorIdx=%d", defIdx, ctorIdx)
+	}
+}
+
+func TestAsyncCarvMainBootstrapUsesCarvMainSymbols(t *testing.T) {
+	output := generateOutputFromSource(t, `
+async fn carv_main() -> int {
+	return 0;
+}
+`)
+
+	if !strings.Contains(output, "carv_main_frame* mf = carv_main();") {
+		t.Fatalf("expected runtime bootstrap to call carv_main, got:\n%s", output)
+	}
+	if !strings.Contains(output, "carv_main_poll") {
+		t.Fatalf("expected runtime bootstrap to reference carv_main_poll, got:\n%s", output)
+	}
+}
+
+func TestAsyncAwaitUsesFrameLocalInPoll(t *testing.T) {
+	output := generateOutputFromSource(t, `
+async fn fetch() -> int {
+	return 1;
+}
+
+async fn carv_main() -> int {
+	let x = await fetch();
+	println(x);
+	return 0;
+}
+`)
+
+	if strings.Contains(output, "printf(\"%lld\", x)") {
+		t.Fatalf("expected async poll path to avoid bare local `x`; got:\n%s", output)
+	}
+	if !strings.Contains(output, "printf(\"%lld\", f->x)") {
+		t.Fatalf("expected async poll path to print frame local `f->x`; got:\n%s", output)
+	}
+}
+
+func TestAsyncGeneratedCCompiles(t *testing.T) {
+	output := generateOutputFromSource(t, `
+async fn fetch() -> int {
+	return 1;
+}
+
+async fn carv_main() -> int {
+	let x = await fetch();
+	return x;
+}
+`)
+
+	compileGeneratedC(t, output)
 }
 
 func TestEventLoopNotEmittedWithoutAsync(t *testing.T) {
