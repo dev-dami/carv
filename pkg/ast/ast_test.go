@@ -223,3 +223,55 @@ func TestInterpolatedString(t *testing.T) {
 		t.Errorf("expected token literal 'f\"hello\"', got %q", interpStr.TokenLiteral())
 	}
 }
+
+func TestAstNodeLocationHelpers(t *testing.T) {
+	token := lexer.Token{Type: lexer.TOKEN_IDENT, Literal: "node", Line: 7, Column: 9}
+
+	matchArm := &MatchArm{Token: token}
+	if line, col := matchArm.Pos(); line != 7 || col != 9 {
+		t.Fatalf("MatchArm expected pos (7,9), got (%d,%d)", line, col)
+	}
+	if matchArm.TokenLiteral() != "node" {
+		t.Fatalf("MatchArm expected token literal node, got %q", matchArm.TokenLiteral())
+	}
+
+	param := &Parameter{Token: token}
+	if line, col := param.Pos(); line != 7 || col != 9 {
+		t.Fatalf("Parameter expected pos (7,9), got (%d,%d)", line, col)
+	}
+	if param.TokenLiteral() != "node" {
+		t.Fatalf("Parameter expected token literal node, got %q", param.TokenLiteral())
+	}
+
+	field := &FieldDecl{Token: token}
+	if line, col := field.Pos(); line != 7 || col != 9 {
+		t.Fatalf("FieldDecl expected pos (7,9), got (%d,%d)", line, col)
+	}
+	if field.TokenLiteral() != "node" {
+		t.Fatalf("FieldDecl expected token literal node, got %q", field.TokenLiteral())
+	}
+
+	method := &MethodDecl{Token: token}
+	if line, col := method.Pos(); line != 7 || col != 9 {
+		t.Fatalf("MethodDecl expected pos (7,9), got (%d,%d)", line, col)
+	}
+	if method.TokenLiteral() != "node" {
+		t.Fatalf("MethodDecl expected token literal node, got %q", method.TokenLiteral())
+	}
+
+	sig := &MethodSignature{Token: token}
+	if line, col := sig.Pos(); line != 7 || col != 9 {
+		t.Fatalf("MethodSignature expected pos (7,9), got (%d,%d)", line, col)
+	}
+	if sig.TokenLiteral() != "node" {
+		t.Fatalf("MethodSignature expected token literal node, got %q", sig.TokenLiteral())
+	}
+
+	selectCase := &SelectCase{Token: token}
+	if line, col := selectCase.Pos(); line != 7 || col != 9 {
+		t.Fatalf("SelectCase expected pos (7,9), got (%d,%d)", line, col)
+	}
+	if selectCase.TokenLiteral() != "node" {
+		t.Fatalf("SelectCase expected token literal node, got %q", selectCase.TokenLiteral())
+	}
+}

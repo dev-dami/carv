@@ -830,31 +830,39 @@ func (p *Parser) parseStringLiteral() ast.Expression {
 }
 
 func unescapeString(s string) string {
-	var result []byte
+	unquoted, err := strconv.Unquote(`"` + s + `"`)
+	if err == nil {
+		return unquoted
+	}
+
+	var result strings.Builder
+	result.Grow(len(s))
 	for i := 0; i < len(s); i++ {
 		if s[i] == '\\' && i+1 < len(s) {
 			switch s[i+1] {
 			case 'n':
-				result = append(result, '\n')
+				result.WriteByte('\n')
 			case 't':
-				result = append(result, '\t')
+				result.WriteByte('\t')
 			case 'r':
-				result = append(result, '\r')
+				result.WriteByte('\r')
 			case '\\':
-				result = append(result, '\\')
+				result.WriteByte('\\')
 			case '"':
-				result = append(result, '"')
+				result.WriteByte('"')
 			case '0':
-				result = append(result, '\x00')
+				result.WriteByte('\x00')
 			default:
-				result = append(result, s[i+1])
+				// Preserve unknown escapes as written instead of dropping the backslash.
+				result.WriteByte('\\')
+				result.WriteByte(s[i+1])
 			}
 			i++
-		} else {
-			result = append(result, s[i])
+			continue
 		}
+		result.WriteByte(s[i])
 	}
-	return string(result)
+	return result.String()
 }
 
 func (p *Parser) parseCharLiteral() ast.Expression {
@@ -1064,11 +1072,12 @@ func (p *Parser) parseFunctionParameters() []*ast.Parameter {
 }
 
 func (p *Parser) parseParameter() *ast.Parameter {
-	param := &ast.Parameter{}
+	param := &ast.Parameter{Token: p.curToken}
 
 	if p.curTokenIs(lexer.TOKEN_MUT) {
 		param.Mutable = true
 		p.nextToken()
+		param.Token = p.curToken
 	}
 
 	if !p.curTokenIs(lexer.TOKEN_IDENT) {

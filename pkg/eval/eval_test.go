@@ -2,7 +2,11 @@ package eval
 
 import (
 	"fmt"
+	"io"
 	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1048,6 +1052,176 @@ wrote;
 	}
 }
 
+func TestBuiltinPrintAndPrintlnFormatting(t *testing.T) {
+	output := captureStdout(t, func() {
+		builtins["print"].Fn(&String{Value: "alpha"})
+		builtins["println"].Fn(&String{Value: "beta"})
+	})
+
+	if output != "alphabeta\n" {
+		t.Fatalf("expected print without newline and println with newline, got %q", output)
+	}
+}
+
+func TestBuiltinMissingFileOperations(t *testing.T) {
+	renameFn, ok := builtins["rename_file"]
+	if !ok {
+		t.Fatal("rename_file builtin not registered")
+	}
+	removeFn, ok := builtins["remove_file"]
+	if !ok {
+		t.Fatal("remove_file builtin not registered")
+	}
+	readDirFn, ok := builtins["read_dir"]
+	if !ok {
+		t.Fatal("read_dir builtin not registered")
+	}
+	cwdFn, ok := builtins["cwd"]
+	if !ok {
+		t.Fatal("cwd builtin not registered")
+	}
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.txt")
+	dst := filepath.Join(dir, "dst.txt")
+
+	writeRes := builtins["write_file"].Fn(
+		&String{Value: src},
+		&String{Value: "hello"},
+	)
+	testNilObject(t, writeRes)
+
+	renameRes := renameFn.Fn(&String{Value: src}, &String{Value: dst})
+	testNilObject(t, renameRes)
+
+	oldExists := builtins["file_exists"].Fn(&String{Value: src})
+	testBooleanObject(t, oldExists, false)
+
+	newExists := builtins["file_exists"].Fn(&String{Value: dst})
+	testBooleanObject(t, newExists, true)
+
+	readDirRes := readDirFn.Fn(&String{Value: dir})
+	arr, ok := readDirRes.(*Array)
+	if !ok {
+		t.Fatalf("expected read_dir to return array, got %T (%s)", readDirRes, readDirRes.Inspect())
+	}
+	if len(arr.Elements) != 1 {
+		t.Fatalf("expected 1 directory entry, got %d", len(arr.Elements))
+	}
+	entry, ok := arr.Elements[0].(*String)
+	if !ok || entry.Value != "dst.txt" {
+		t.Fatalf("expected dst.txt entry, got %#v", arr.Elements[0])
+	}
+
+	removeRes := removeFn.Fn(&String{Value: dst})
+	testNilObject(t, removeRes)
+
+	newExists = builtins["file_exists"].Fn(&String{Value: dst})
+	testBooleanObject(t, newExists, false)
+
+	cwdRes := cwdFn.Fn()
+	cwd, ok := cwdRes.(*String)
+	if !ok || cwd.Value == "" {
+		t.Fatalf("expected cwd() to return non-empty string, got %T (%s)", cwdRes, cwdRes.Inspect())
+	}
+}
+
+func TestTCPReadEOFCleansConnectionHandle(t *testing.T) {
+	resetTCPHandlesForTest(t)
+	defer resetTCPHandlesForTest(t)
+
+	port := getFreeTCPPort(t)
+	listenerObj := builtins["tcp_listen"].Fn(&String{Value: "127.0.0.1"}, &Integer{Value: int64(port)})
+	listenerHandle, ok := listenerObj.(*Integer)
+	if !ok {
+		t.Fatalf("expected listener handle integer, got %T (%s)", listenerObj, listenerObj.Inspect())
+	}
+
+	clientDone := make(chan struct{})
+	go func() {
+		conn, err := dialLocalTCP(port)
+		if err == nil {
+			_ = conn.Close()
+		}
+		close(clientDone)
+	}()
+
+	connObj := builtins["tcp_accept"].Fn(listenerHandle)
+	connHandle, ok := connObj.(*Integer)
+	if !ok {
+		t.Fatalf("expected connection handle integer, got %T (%s)", connObj, connObj.Inspect())
+	}
+
+	readObj := builtins["tcp_read"].Fn(connHandle, &Integer{Value: 64})
+	str, ok := readObj.(*String)
+	if !ok {
+		t.Fatalf("expected string from tcp_read, got %T (%s)", readObj, readObj.Inspect())
+	}
+	if str.Value != "" {
+		t.Fatalf("expected empty read on EOF, got %q", str.Value)
+	}
+
+	writeObj := builtins["tcp_write"].Fn(connHandle, &String{Value: "after-eof"})
+	errObj, ok := writeObj.(*Error)
+	if !ok {
+		t.Fatalf("expected invalid-handle error after EOF cleanup, got %T (%s)", writeObj, writeObj.Inspect())
+	}
+	if !strings.Contains(errObj.Message, "invalid connection handle") {
+		t.Fatalf("expected invalid handle error, got %q", errObj.Message)
+	}
+
+	closeObj := builtins["tcp_close"].Fn(listenerHandle)
+	testBooleanObject(t, closeObj, true)
+
+	<-clientDone
+}
+
+func TestTCPClosingListenerCleansAcceptedConnections(t *testing.T) {
+	resetTCPHandlesForTest(t)
+	defer resetTCPHandlesForTest(t)
+
+	port := getFreeTCPPort(t)
+	listenerObj := builtins["tcp_listen"].Fn(&String{Value: "127.0.0.1"}, &Integer{Value: int64(port)})
+	listenerHandle, ok := listenerObj.(*Integer)
+	if !ok {
+		t.Fatalf("expected listener handle integer, got %T (%s)", listenerObj, listenerObj.Inspect())
+	}
+
+	clientCh := make(chan net.Conn, 1)
+	go func() {
+		conn, err := dialLocalTCP(port)
+		if err == nil {
+			clientCh <- conn
+			return
+		}
+		close(clientCh)
+	}()
+
+	connObj := builtins["tcp_accept"].Fn(listenerHandle)
+	connHandle, ok := connObj.(*Integer)
+	if !ok {
+		t.Fatalf("expected connection handle integer, got %T (%s)", connObj, connObj.Inspect())
+	}
+
+	clientConn, ok := <-clientCh
+	if !ok || clientConn == nil {
+		t.Fatal("failed to establish client connection")
+	}
+	defer clientConn.Close()
+
+	closeObj := builtins["tcp_close"].Fn(listenerHandle)
+	testBooleanObject(t, closeObj, true)
+
+	writeObj := builtins["tcp_write"].Fn(connHandle, &String{Value: "ping"})
+	errObj, ok := writeObj.(*Error)
+	if !ok {
+		t.Fatalf("expected invalid-handle error after listener close cleanup, got %T (%s)", writeObj, writeObj.Inspect())
+	}
+	if !strings.Contains(errObj.Message, "invalid connection handle") {
+		t.Fatalf("expected invalid handle error, got %q", errObj.Message)
+	}
+}
+
 func TestDivisionByZero(t *testing.T) {
 	input := `10 / 0;`
 	evaluated := testEval(input)
@@ -1122,4 +1296,74 @@ func getFreeTCPPort(t *testing.T) int {
 	}
 	defer ln.Close()
 	return ln.Addr().(*net.TCPAddr).Port
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create stdout pipe: %v", err)
+	}
+	os.Stdout = w
+	defer func() {
+		os.Stdout = old
+	}()
+
+	fn()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("failed to close pipe writer: %v", err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("failed to read stdout capture: %v", err)
+	}
+	return string(out)
+}
+
+func dialLocalTCP(port int) (net.Conn, error) {
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	var conn net.Conn
+	var err error
+	for i := 0; i < 100; i++ {
+		conn, err = net.DialTimeout("tcp", addr, 50*time.Millisecond)
+		if err == nil {
+			return conn, nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return nil, err
+}
+
+func resetTCPHandlesForTest(t *testing.T) {
+	t.Helper()
+
+	tcpMu.Lock()
+	listeners := make([]net.Listener, 0, len(tcpListeners))
+	for handle, ln := range tcpListeners {
+		delete(tcpListeners, handle)
+		listeners = append(listeners, ln)
+	}
+
+	conns := make([]net.Conn, 0, len(tcpConns))
+	for handle, conn := range tcpConns {
+		delete(tcpConns, handle)
+		conns = append(conns, conn)
+	}
+	for handle := range tcpConnOwners {
+		delete(tcpConnOwners, handle)
+	}
+	for handle := range tcpListenerConns {
+		delete(tcpListenerConns, handle)
+	}
+	tcpNextHandle = 1
+	tcpMu.Unlock()
+
+	for _, conn := range conns {
+		_ = conn.Close()
+	}
+	for _, ln := range listeners {
+		_ = ln.Close()
+	}
 }

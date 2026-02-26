@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +18,8 @@ var tcpMu sync.Mutex
 var tcpNextHandle int64 = 1
 var tcpListeners = map[int64]net.Listener{}
 var tcpConns = map[int64]net.Conn{}
+var tcpConnOwners = map[int64]int64{}
+var tcpListenerConns = map[int64]map[int64]struct{}{}
 
 func SetArgs(args []string) {
 	cliArgs = args
@@ -29,7 +32,7 @@ var builtins = map[string]*Builtin{
 			for _, arg := range args {
 				out = append(out, arg.Inspect())
 			}
-			fmt.Println(strings.Join(out, " "))
+			fmt.Print(strings.Join(out, " "))
 			return NIL
 		},
 	},
@@ -677,6 +680,11 @@ var builtins = map[string]*Builtin{
 			connHandle := tcpAllocHandle()
 			tcpMu.Lock()
 			tcpConns[connHandle] = conn
+			tcpConnOwners[connHandle] = listenerHandle.Value
+			if tcpListenerConns[listenerHandle.Value] == nil {
+				tcpListenerConns[listenerHandle.Value] = make(map[int64]struct{})
+			}
+			tcpListenerConns[listenerHandle.Value][connHandle] = struct{}{}
 			tcpMu.Unlock()
 			return &Integer{Value: connHandle}
 		},
@@ -709,8 +717,10 @@ var builtins = map[string]*Builtin{
 			n, err := conn.Read(buf)
 			if err != nil {
 				if errors.Is(err, io.EOF) {
+					_ = tcpCloseHandle(connHandle.Value)
 					return &String{Value: ""}
 				}
+				_ = tcpCloseHandle(connHandle.Value)
 				return newError("tcp_read: %s", err.Error())
 			}
 			return &String{Value: string(buf[:n])}
@@ -739,6 +749,7 @@ var builtins = map[string]*Builtin{
 
 			n, err := conn.Write([]byte(data.Value))
 			if err != nil {
+				_ = tcpCloseHandle(connHandle.Value)
 				return newError("tcp_write: %s", err.Error())
 			}
 			return &Integer{Value: int64(n)}
@@ -860,6 +871,79 @@ var builtins = map[string]*Builtin{
 			return NIL
 		},
 	},
+	"remove_file": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 1 {
+				return newError("remove_file() takes exactly 1 argument")
+			}
+			path, ok := args[0].(*String)
+			if !ok {
+				return newError("remove_file() argument must be a string")
+			}
+			err := os.Remove(path.Value)
+			if err != nil {
+				return newError("remove_file: %s", err.Error())
+			}
+			return NIL
+		},
+	},
+	"rename_file": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 2 {
+				return newError("rename_file() takes exactly 2 arguments")
+			}
+			oldPath, ok := args[0].(*String)
+			if !ok {
+				return newError("rename_file() first argument must be a string")
+			}
+			newPath, ok := args[1].(*String)
+			if !ok {
+				return newError("rename_file() second argument must be a string")
+			}
+			err := os.Rename(oldPath.Value, newPath.Value)
+			if err != nil {
+				return newError("rename_file: %s", err.Error())
+			}
+			return NIL
+		},
+	},
+	"read_dir": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 1 {
+				return newError("read_dir() takes exactly 1 argument")
+			}
+			path, ok := args[0].(*String)
+			if !ok {
+				return newError("read_dir() argument must be a string")
+			}
+			entries, err := os.ReadDir(path.Value)
+			if err != nil {
+				return newError("read_dir: %s", err.Error())
+			}
+			names := make([]string, 0, len(entries))
+			for _, entry := range entries {
+				names = append(names, entry.Name())
+			}
+			sort.Strings(names)
+			out := make([]Object, len(names))
+			for i, name := range names {
+				out[i] = &String{Value: name}
+			}
+			return &Array{Elements: out}
+		},
+	},
+	"cwd": {
+		Fn: func(args ...Object) Object {
+			if len(args) != 0 {
+				return newError("cwd() takes no arguments")
+			}
+			wd, err := os.Getwd()
+			if err != nil {
+				return newError("cwd: %s", err.Error())
+			}
+			return &String{Value: wd}
+		},
+	},
 	"getenv": {
 		Fn: func(args ...Object) Object {
 			if len(args) != 1 {
@@ -908,15 +992,54 @@ func tcpAllocHandle() int64 {
 
 func tcpCloseHandle(handle int64) error {
 	tcpMu.Lock()
-	defer tcpMu.Unlock()
 
 	if conn, ok := tcpConns[handle]; ok {
 		delete(tcpConns, handle)
+		if owner, hasOwner := tcpConnOwners[handle]; hasOwner {
+			delete(tcpConnOwners, handle)
+			if children, hasChildren := tcpListenerConns[owner]; hasChildren {
+				delete(children, handle)
+				if len(children) == 0 {
+					delete(tcpListenerConns, owner)
+				}
+			}
+		}
+		tcpMu.Unlock()
 		return conn.Close()
 	}
+
 	if ln, ok := tcpListeners[handle]; ok {
 		delete(tcpListeners, handle)
-		return ln.Close()
+
+		conns := make([]net.Conn, 0)
+		if children, hasChildren := tcpListenerConns[handle]; hasChildren {
+			conns = make([]net.Conn, 0, len(children))
+			for connHandle := range children {
+				if conn, exists := tcpConns[connHandle]; exists {
+					delete(tcpConns, connHandle)
+					conns = append(conns, conn)
+				}
+				delete(tcpConnOwners, connHandle)
+			}
+			delete(tcpListenerConns, handle)
+		}
+		tcpMu.Unlock()
+
+		var errs []string
+		if err := ln.Close(); err != nil {
+			errs = append(errs, err.Error())
+		}
+		for _, conn := range conns {
+			if err := conn.Close(); err != nil {
+				errs = append(errs, err.Error())
+			}
+		}
+		if len(errs) > 0 {
+			return fmt.Errorf(strings.Join(errs, "; "))
+		}
+		return nil
 	}
+
+	tcpMu.Unlock()
 	return fmt.Errorf("invalid handle %d", handle)
 }

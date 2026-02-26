@@ -973,6 +973,39 @@ func TestAsyncImplMethodParsing(t *testing.T) {
 	}
 }
 
+func TestStringLiteralUnescaping(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{`"\n\t\r\\\"";`, "\n\t\r\\\""},
+		{`"\u263A\x21";`, "☺!"},
+		{`"keep\qslash";`, `keep\qslash`},
+	}
+
+	for _, tt := range tests {
+		l := lexer.New(tt.input)
+		p := New(l)
+		program := p.ParseProgram()
+		checkParserErrors(t, p)
+
+		if len(program.Statements) != 1 {
+			t.Fatalf("expected one statement for %q, got %d", tt.input, len(program.Statements))
+		}
+		stmt, ok := program.Statements[0].(*ast.ExpressionStatement)
+		if !ok {
+			t.Fatalf("expected ExpressionStatement, got %T", program.Statements[0])
+		}
+		lit, ok := stmt.Expression.(*ast.StringLiteral)
+		if !ok {
+			t.Fatalf("expected StringLiteral, got %T", stmt.Expression)
+		}
+		if lit.Value != tt.expected {
+			t.Fatalf("for %q expected %q, got %q", tt.input, tt.expected, lit.Value)
+		}
+	}
+}
+
 func checkParserErrors(t *testing.T, p *Parser) {
 	errors := p.Errors()
 	if len(errors) == 0 {

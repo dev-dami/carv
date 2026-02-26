@@ -228,6 +228,9 @@ type MatchArm struct {
 	Body    Expression
 }
 
+func (ma *MatchArm) TokenLiteral() string { return ma.Token.Literal }
+func (ma *MatchArm) Pos() (int, int)      { return ma.Token.Line, ma.Token.Column }
+
 type FunctionLiteral struct {
 	Token      lexer.Token
 	Name       *Identifier
@@ -241,10 +244,14 @@ func (fl *FunctionLiteral) TokenLiteral() string { return fl.Token.Literal }
 func (fl *FunctionLiteral) Pos() (int, int)      { return fl.Token.Line, fl.Token.Column }
 
 type Parameter struct {
+	Token   lexer.Token
 	Name    *Identifier
 	Type    TypeExpr
 	Mutable bool
 }
+
+func (p *Parameter) TokenLiteral() string { return p.Token.Literal }
+func (p *Parameter) Pos() (int, int)      { return p.Token.Line, p.Token.Column }
 
 type SpawnExpression struct {
 	Token lexer.Token

@@ -159,6 +159,9 @@ type FieldDecl struct {
 	Static  bool
 }
 
+func (fd *FieldDecl) TokenLiteral() string { return fd.Token.Literal }
+func (fd *FieldDecl) Pos() (int, int)      { return fd.Token.Line, fd.Token.Column }
+
 type MethodDecl struct {
 	Token      lexer.Token
 	Name       *Identifier
@@ -170,6 +173,9 @@ type MethodDecl struct {
 	Static     bool
 	Async      bool
 }
+
+func (md *MethodDecl) TokenLiteral() string { return md.Token.Literal }
+func (md *MethodDecl) Pos() (int, int)      { return md.Token.Line, md.Token.Column }
 
 type InterfaceStatement struct {
 	Token   lexer.Token
@@ -189,6 +195,9 @@ type MethodSignature struct {
 	Parameters []*Parameter
 	ReturnType TypeExpr
 }
+
+func (ms *MethodSignature) TokenLiteral() string { return ms.Token.Literal }
+func (ms *MethodSignature) Pos() (int, int)      { return ms.Token.Line, ms.Token.Column }
 
 type ImplStatement struct {
 	Token     lexer.Token
@@ -259,3 +268,6 @@ type SelectCase struct {
 	Body    *BlockStatement
 	Default bool
 }
+
+func (sc *SelectCase) TokenLiteral() string { return sc.Token.Literal }
+func (sc *SelectCase) Pos() (int, int)      { return sc.Token.Line, sc.Token.Column }
