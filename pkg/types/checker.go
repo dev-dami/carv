@@ -6,29 +6,16 @@ import (
 	"github.com/dev-dami/carv/pkg/ast"
 )
 
-// OwnershipState tracks whether a variable's value has been moved
-type OwnershipState int
-
-const (
-	Owned OwnershipState = iota // variable holds its value
-	Moved                       // value has been moved to another binding
-)
-
-// VarOwnership tracks ownership metadata for a variable
-type VarOwnership struct {
-	State   OwnershipState
-	MovedAt int    // line number where the move occurred
-	MovedTo string // what it was moved to (variable name or "function call")
-}
-
-type BorrowInfo struct {
-	ImmutableCount int
-	MutableActive  bool
+type CheckIssue struct {
+	Line    int
+	Column  int
+	Kind    string
+	Message string
 }
 
 type Checker struct {
-	errors         []string
-	warnings       []string
+	errors         []CheckIssue
+	warnings       []CheckIssue
 	ownership      map[string]*VarOwnership
 	borrows        map[string]*BorrowInfo
 	scope          *Scope
@@ -63,8 +50,8 @@ func (s *Scope) Lookup(name string) (Type, bool) {
 
 func NewChecker() *Checker {
 	c := &Checker{
-		errors:         []string{},
-		warnings:       []string{},
+		errors:         []CheckIssue{},
+		warnings:       []CheckIssue{},
 		ownership:      make(map[string]*VarOwnership),
 		borrows:        make(map[string]*BorrowInfo),
 		scope:          NewScope(nil),
@@ -158,66 +145,45 @@ func builtinModuleMemberTypes(moduleName string) map[string]Type {
 }
 
 func (c *Checker) Errors() []string {
-	return c.errors
+	out := make([]string, len(c.errors))
+	for i, issue := range c.errors {
+		out[i] = fmt.Sprintf("type error at %d:%d: %s", issue.Line, issue.Column, issue.Message)
+	}
+	return out
 }
 
 func (c *Checker) Warnings() []string {
-	return c.warnings
+	out := make([]string, len(c.warnings))
+	for i, issue := range c.warnings {
+		out[i] = fmt.Sprintf("warning at line %d, col %d: %s", issue.Line, issue.Column, issue.Message)
+	}
+	return out
+}
+
+func (c *Checker) ErrorIssues() []CheckIssue {
+	return append([]CheckIssue(nil), c.errors...)
+}
+
+func (c *Checker) WarningIssues() []CheckIssue {
+	return append([]CheckIssue(nil), c.warnings...)
 }
 
 func (c *Checker) error(line, col int, format string, args ...interface{}) {
-	msg := fmt.Sprintf("type error at %d:%d: %s", line, col, fmt.Sprintf(format, args...))
-	c.errors = append(c.errors, msg)
+	c.errors = append(c.errors, CheckIssue{
+		Line:    line,
+		Column:  col,
+		Kind:    "type_error",
+		Message: fmt.Sprintf(format, args...),
+	})
 }
 
 func (c *Checker) warning(line, col int, format string, args ...interface{}) {
-	msg := fmt.Sprintf(format, args...)
-	c.warnings = append(c.warnings, fmt.Sprintf("warning at line %d, col %d: %s", line, col, msg))
-}
-
-func (c *Checker) pushOwnership() map[string]*VarOwnership {
-	prev := c.ownership
-	next := make(map[string]*VarOwnership, len(prev))
-	for name, ownership := range prev {
-		next[name] = ownership
-	}
-	c.ownership = next
-	return prev
-}
-
-func (c *Checker) popOwnership(prev map[string]*VarOwnership) {
-	c.ownership = prev
-}
-
-func (c *Checker) pushBorrows() map[string]*BorrowInfo {
-	prev := c.borrows
-	next := make(map[string]*BorrowInfo, len(prev))
-	for name, info := range prev {
-		cp := *info
-		next[name] = &cp
-	}
-	c.borrows = next
-	return prev
-}
-
-func (c *Checker) popBorrows(prev map[string]*BorrowInfo) {
-	c.borrows = prev
-}
-
-func (c *Checker) trackOwnership(name string, t Type) {
-	if IsMoveType(t) {
-		c.ownership[name] = &VarOwnership{State: Owned}
-		return
-	}
-	delete(c.ownership, name)
-}
-
-func (c *Checker) markMoved(name string, line int, movedTo string) {
-	if own, exists := c.ownership[name]; exists && own.State == Owned {
-		own.State = Moved
-		own.MovedAt = line
-		own.MovedTo = movedTo
-	}
+	c.warnings = append(c.warnings, CheckIssue{
+		Line:    line,
+		Column:  col,
+		Kind:    "warning",
+		Message: fmt.Sprintf(format, args...),
+	})
 }
 
 func (c *Checker) Check(program *ast.Program) bool {
@@ -260,33 +226,56 @@ func (c *Checker) checkStatement(stmt ast.Statement) {
 	}
 }
 
+func (c *Checker) bindCheckedValue(name string, declared ast.TypeExpr, valueType Type, line, col int) Type {
+	boundType := valueType
+	if declared != nil {
+		declType := c.resolveTypeExpr(declared)
+		if declType != nil && !c.isAssignable(declType, valueType) {
+			c.error(line, col, "cannot assign %s to %s", valueType.String(), declType.String())
+		}
+		c.scope.Define(name, declType)
+		boundType = declType
+	} else {
+		c.scope.Define(name, valueType)
+	}
+	c.trackOwnership(name, boundType)
+	return boundType
+}
+
+func (c *Checker) resolveParameterTypes(params []*ast.Parameter) []Type {
+	types := make([]Type, len(params))
+	for i, p := range params {
+		if p.Type != nil {
+			types[i] = c.resolveTypeExpr(p.Type)
+		} else {
+			types[i] = Any
+		}
+	}
+	return types
+}
+
+func (c *Checker) checkConditionIsBool(expr ast.Expression, context string) {
+	if expr == nil {
+		return
+	}
+	condType := c.checkExpression(expr)
+	if condType != nil && !condType.Equals(Bool) {
+		line, col := expr.Pos()
+		c.error(line, col, "%s condition must be bool, got %s", context, condType.String())
+	}
+}
+
 func (c *Checker) checkLetStatement(s *ast.LetStatement) {
 	valType := c.checkExpression(s.Value)
 	if valType == nil {
 		return
 	}
 
-	boundType := valType
-
-	if s.Type != nil {
-		declType := c.resolveTypeExpr(s.Type)
-		if declType != nil && !c.isAssignable(declType, valType) {
-			line, col := s.Pos()
-			c.error(line, col, "cannot assign %s to %s", valType.String(), declType.String())
-		}
-		c.scope.Define(s.Name.Value, declType)
-		boundType = declType
-	} else {
-		c.scope.Define(s.Name.Value, valType)
-	}
-
-	c.trackOwnership(s.Name.Value, boundType)
+	line, col := s.Pos()
+	c.bindCheckedValue(s.Name.Value, s.Type, valType, line, col)
 
 	if IsMoveType(valType) {
-		if ident, ok := s.Value.(*ast.Identifier); ok {
-			line, _ := s.Pos()
-			c.markMoved(ident.Value, line, s.Name.Value)
-		}
+		c.markMoveFromExpression(s.Value, line, s.Name.Value)
 	}
 }
 
@@ -296,39 +285,16 @@ func (c *Checker) checkConstStatement(s *ast.ConstStatement) {
 		return
 	}
 
-	boundType := valType
-
-	if s.Type != nil {
-		declType := c.resolveTypeExpr(s.Type)
-		if declType != nil && !c.isAssignable(declType, valType) {
-			line, col := s.Pos()
-			c.error(line, col, "cannot assign %s to %s", valType.String(), declType.String())
-		}
-		c.scope.Define(s.Name.Value, declType)
-		boundType = declType
-	} else {
-		c.scope.Define(s.Name.Value, valType)
-	}
-
-	c.trackOwnership(s.Name.Value, boundType)
+	line, col := s.Pos()
+	c.bindCheckedValue(s.Name.Value, s.Type, valType, line, col)
 
 	if IsMoveType(valType) {
-		if ident, ok := s.Value.(*ast.Identifier); ok {
-			line, _ := s.Pos()
-			c.markMoved(ident.Value, line, s.Name.Value)
-		}
+		c.markMoveFromExpression(s.Value, line, s.Name.Value)
 	}
 }
 
 func (c *Checker) checkFunctionStatement(s *ast.FunctionStatement) {
-	paramTypes := make([]Type, len(s.Parameters))
-	for i, p := range s.Parameters {
-		if p.Type != nil {
-			paramTypes[i] = c.resolveTypeExpr(p.Type)
-		} else {
-			paramTypes[i] = Any
-		}
-	}
+	paramTypes := c.resolveParameterTypes(s.Parameters)
 
 	var retType Type = Void
 	if s.ReturnType != nil {
@@ -366,10 +332,8 @@ func (c *Checker) checkReturnStatement(s *ast.ReturnStatement) {
 	if s.ReturnValue != nil {
 		retType := c.checkExpression(s.ReturnValue)
 		if IsMoveType(retType) {
-			if ident, ok := s.ReturnValue.(*ast.Identifier); ok {
-				line, _ := s.ReturnValue.Pos()
-				c.markMoved(ident.Value, line, "return")
-			}
+			line, _ := s.ReturnValue.Pos()
+			c.markMoveFromExpression(s.ReturnValue, line, "return")
 		}
 		if _, isRef := retType.(*RefType); isRef {
 			line, col := s.ReturnValue.Pos()
@@ -387,13 +351,7 @@ func (c *Checker) checkForStatement(s *ast.ForStatement) {
 	if s.Init != nil {
 		c.checkStatement(s.Init)
 	}
-	if s.Condition != nil {
-		condType := c.checkExpression(s.Condition)
-		if condType != nil && !condType.Equals(Bool) {
-			line, col := s.Condition.Pos()
-			c.error(line, col, "for condition must be bool, got %s", condType.String())
-		}
-	}
+	c.checkConditionIsBool(s.Condition, "for")
 	if s.Post != nil {
 		c.checkStatement(s.Post)
 	}
@@ -427,11 +385,7 @@ func (c *Checker) checkForInStatement(s *ast.ForInStatement) {
 }
 
 func (c *Checker) checkWhileStatement(s *ast.WhileStatement) {
-	condType := c.checkExpression(s.Condition)
-	if condType != nil && !condType.Equals(Bool) {
-		line, col := s.Condition.Pos()
-		c.error(line, col, "while condition must be bool, got %s", condType.String())
-	}
+	c.checkConditionIsBool(s.Condition, "while")
 	c.checkBlockStatement(s.Body)
 }
 
@@ -728,10 +682,8 @@ func (c *Checker) checkCallExpression(e *ast.CallExpression) Type {
 		}
 
 		if IsMoveType(argType) {
-			if ident, ok := arg.(*ast.Identifier); ok {
-				line, _ := arg.Pos()
-				c.markMoved(ident.Value, line, "function call")
-			}
+			line, _ := arg.Pos()
+			c.markMoveFromExpression(arg, line, "function call")
 		}
 	}
 
@@ -807,11 +759,7 @@ func (c *Checker) checkIndexExpression(e *ast.IndexExpression) Type {
 }
 
 func (c *Checker) checkIfExpression(e *ast.IfExpression) Type {
-	condType := c.checkExpression(e.Condition)
-	if !condType.Equals(Bool) {
-		line, col := e.Condition.Pos()
-		c.error(line, col, "if condition must be bool, got %s", condType.String())
-	}
+	c.checkConditionIsBool(e.Condition, "if")
 
 	c.checkBlockStatement(e.Consequence)
 	if e.Alternative != nil {
@@ -822,14 +770,7 @@ func (c *Checker) checkIfExpression(e *ast.IfExpression) Type {
 }
 
 func (c *Checker) checkFunctionLiteral(e *ast.FunctionLiteral) Type {
-	paramTypes := make([]Type, len(e.Parameters))
-	for i, p := range e.Parameters {
-		if p.Type != nil {
-			paramTypes[i] = c.resolveTypeExpr(p.Type)
-		} else {
-			paramTypes[i] = Any
-		}
-	}
+	paramTypes := c.resolveParameterTypes(e.Parameters)
 
 	var retType Type = Void
 	if e.ReturnType != nil {
@@ -897,252 +838,6 @@ func (c *Checker) checkInterpolatedString(e *ast.InterpolatedString) Type {
 	return String
 }
 
-func (c *Checker) checkBorrowExpression(e *ast.BorrowExpression) Type {
-	innerType := c.checkExpression(e.Value)
-
-	varName := ""
-	if ident, ok := e.Value.(*ast.Identifier); ok {
-		varName = ident.Value
-	}
-
-	if varName != "" {
-		if own, exists := c.ownership[varName]; exists && own.State == Moved {
-			line, col := e.Pos()
-			c.warning(line, col, "cannot borrow moved value '%s' (moved at line %d)", varName, own.MovedAt)
-			return &RefType{Inner: innerType, Mutable: e.Mutable}
-		}
-
-		info := c.borrows[varName]
-		if info == nil {
-			info = &BorrowInfo{}
-			c.borrows[varName] = info
-		}
-
-		if e.Mutable {
-			if info.ImmutableCount > 0 {
-				line, col := e.Pos()
-				c.warning(line, col, "cannot mutably borrow '%s': already immutably borrowed", varName)
-			}
-			if info.MutableActive {
-				line, col := e.Pos()
-				c.warning(line, col, "cannot mutably borrow '%s': already mutably borrowed", varName)
-			}
-			info.MutableActive = true
-		} else {
-			if info.MutableActive {
-				line, col := e.Pos()
-				c.warning(line, col, "cannot immutably borrow '%s': already mutably borrowed", varName)
-			}
-			info.ImmutableCount++
-		}
-	}
-
-	return &RefType{Inner: innerType, Mutable: e.Mutable}
-}
-
-func (c *Checker) checkDerefExpression(e *ast.DerefExpression) Type {
-	innerType := c.checkExpression(e.Value)
-	if ref, ok := innerType.(*RefType); ok {
-		return ref.Inner
-	}
-	line, col := e.Pos()
-	c.warning(line, col, "dereference of non-reference type %s", innerType.String())
-	return innerType
-}
-
-func (c *Checker) checkClassStatement(s *ast.ClassStatement) {
-	fields := make(map[string]Type)
-	for _, f := range s.Fields {
-		var ft Type
-		if f.Type != nil {
-			ft = c.resolveTypeExpr(f.Type)
-		} else {
-			ft = Any
-		}
-		fields[f.Name.Value] = ft
-	}
-
-	classType := &ClassType{Name: s.Name.Value, Fields: fields}
-	c.scope.Define(s.Name.Value, classType)
-
-	for _, method := range s.Methods {
-		prevScope := c.scope
-		prevOwnership := c.pushOwnership()
-		prevBorrows := c.pushBorrows()
-		c.scope = NewScope(prevScope)
-
-		switch method.Receiver {
-		case ast.RecvRef:
-			c.scope.Define("self", &RefType{Inner: classType, Mutable: false})
-		case ast.RecvMutRef:
-			c.scope.Define("self", &RefType{Inner: classType, Mutable: true})
-		case ast.RecvValue:
-			c.scope.Define("self", classType)
-		}
-
-		paramTypes := make([]Type, len(method.Parameters))
-		for i, p := range method.Parameters {
-			if p.Type != nil {
-				paramTypes[i] = c.resolveTypeExpr(p.Type)
-			} else {
-				paramTypes[i] = Any
-			}
-			c.scope.Define(p.Name.Value, paramTypes[i])
-		}
-
-		if method.Body != nil {
-			c.checkBlockStatement(method.Body)
-		}
-
-		c.scope = prevScope
-		c.popOwnership(prevOwnership)
-		c.popBorrows(prevBorrows)
-	}
-}
-
-func (c *Checker) checkInterfaceStatement(s *ast.InterfaceStatement) {
-	methods := make(map[string]*FunctionType)
-	receivers := make(map[string]ast.ReceiverKind)
-
-	for _, sig := range s.Methods {
-		paramTypes := make([]Type, len(sig.Parameters))
-		for i, p := range sig.Parameters {
-			if p.Type != nil {
-				paramTypes[i] = c.resolveTypeExpr(p.Type)
-			} else {
-				paramTypes[i] = Any
-			}
-		}
-
-		var retType Type = Void
-		if sig.ReturnType != nil {
-			retType = c.resolveTypeExpr(sig.ReturnType)
-		}
-
-		methods[sig.Name.Value] = &FunctionType{Params: paramTypes, Return: retType}
-		receivers[sig.Name.Value] = sig.Receiver
-	}
-
-	ifaceType := &InterfaceType{Name: s.Name.Value, Methods: methods}
-	c.scope.Define(s.Name.Value, ifaceType)
-	c.ifaceReceivers[s.Name.Value] = receivers
-}
-
-func (c *Checker) checkImplStatement(s *ast.ImplStatement) {
-	ifaceType, ok := c.scope.Lookup(s.Interface.Value)
-	if !ok {
-		line, col := s.Interface.Pos()
-		c.error(line, col, "undefined interface: %s", s.Interface.Value)
-		return
-	}
-	iface, ok := ifaceType.(*InterfaceType)
-	if !ok {
-		line, col := s.Interface.Pos()
-		c.error(line, col, "%s is not an interface", s.Interface.Value)
-		return
-	}
-
-	classType, ok := c.scope.Lookup(s.Type.Value)
-	if !ok {
-		line, col := s.Type.Pos()
-		c.error(line, col, "undefined type: %s", s.Type.Value)
-		return
-	}
-
-	implMethods := make(map[string]*FunctionType)
-	implReceivers := make(map[string]ast.ReceiverKind)
-	implDecls := make(map[string]*ast.MethodDecl)
-	for _, method := range s.Methods {
-		paramTypes := make([]Type, len(method.Parameters))
-		for i, p := range method.Parameters {
-			if p.Type != nil {
-				paramTypes[i] = c.resolveTypeExpr(p.Type)
-			} else {
-				paramTypes[i] = Any
-			}
-		}
-
-		var retType Type = Void
-		if method.ReturnType != nil {
-			retType = c.resolveTypeExpr(method.ReturnType)
-		}
-
-		implMethods[method.Name.Value] = &FunctionType{Params: paramTypes, Return: retType}
-		implReceivers[method.Name.Value] = method.Receiver
-		implDecls[method.Name.Value] = method
-
-		prevScope := c.scope
-		prevOwnership := c.pushOwnership()
-		prevBorrows := c.pushBorrows()
-		c.scope = NewScope(prevScope)
-
-		switch method.Receiver {
-		case ast.RecvRef:
-			c.scope.Define("self", &RefType{Inner: classType, Mutable: false})
-		case ast.RecvMutRef:
-			c.scope.Define("self", &RefType{Inner: classType, Mutable: true})
-		case ast.RecvValue:
-			c.scope.Define("self", classType)
-		}
-
-		for i, p := range method.Parameters {
-			c.scope.Define(p.Name.Value, paramTypes[i])
-		}
-
-		if method.Body != nil {
-			c.checkBlockStatement(method.Body)
-		}
-
-		c.scope = prevScope
-		c.popOwnership(prevOwnership)
-		c.popBorrows(prevBorrows)
-	}
-
-	for name, ifaceMethod := range iface.Methods {
-		implMethod, exists := implMethods[name]
-		if !exists {
-			line, col := s.Pos()
-			c.error(line, col, "type %s does not implement %s: missing method %s",
-				s.Type.Value, s.Interface.Value, name)
-			continue
-		}
-		if len(implMethod.Params) != len(ifaceMethod.Params) {
-			line, col := s.Pos()
-			c.error(line, col, "method %s has wrong number of parameters", name)
-			continue
-		}
-		for i, p := range ifaceMethod.Params {
-			if !c.isAssignable(p, implMethod.Params[i]) {
-				line, col := s.Pos()
-				c.error(line, col, "method %s parameter %d: expected %s, got %s",
-					name, i+1, p.String(), implMethod.Params[i].String())
-			}
-		}
-		if !c.isAssignable(ifaceMethod.Return, implMethod.Return) {
-			line, col := s.Pos()
-			c.error(line, col, "method %s: return type mismatch: expected %s, got %s",
-				name, ifaceMethod.Return.String(), implMethod.Return.String())
-		}
-		if ifaceReceiverMap, ok := c.ifaceReceivers[s.Interface.Value]; ok {
-			if ifaceReceiver, ok := ifaceReceiverMap[name]; ok {
-				if implReceiver, ok := implReceivers[name]; ok && ifaceReceiver != implReceiver {
-					line, col := s.Pos()
-					if decl, ok := implDecls[name]; ok {
-						line, col = decl.Name.Pos()
-					}
-					c.warning(line, col, "receiver mismatch for method %s: interface expects %s, impl has %s",
-						name, receiverKindName(ifaceReceiver), receiverKindName(implReceiver))
-				}
-			}
-		}
-	}
-
-	if c.impls[s.Type.Value] == nil {
-		c.impls[s.Type.Value] = make(map[string]bool)
-	}
-	c.impls[s.Type.Value][s.Interface.Value] = true
-}
-
 func (c *Checker) checkCastExpression(e *ast.CastExpression) Type {
 	c.checkExpression(e.Value)
 	targetType := c.resolveTypeExpr(e.Type)
@@ -1155,52 +850,6 @@ func (c *Checker) checkCastExpression(e *ast.CastExpression) Type {
 	}
 
 	return targetType
-}
-
-func (c *Checker) checkAwaitExpression(e *ast.AwaitExpression) Type {
-	if !c.inAsyncFn {
-		line, col := e.Pos()
-		c.error(line, col, "await can only be used inside async functions")
-		return Any
-	}
-
-	for name, info := range c.borrows {
-		if info.ImmutableCount > 0 || info.MutableActive {
-			line, col := e.Pos()
-			c.error(line, col, "borrow of '%s' cannot be held across await point", name)
-		}
-	}
-
-	innerType := c.checkExpression(e.Value)
-	if ft, ok := innerType.(*FutureType); ok {
-		return ft.Inner
-	}
-
-	line, col := e.Pos()
-	c.error(line, col, "await requires Future type, got %s", innerType.String())
-	return Any
-}
-
-func (c *Checker) checkMemberExpressionForInterface(e *ast.MemberExpression, objType Type) Type {
-	if ref, ok := objType.(*RefType); ok {
-		if iface, ok := ref.Inner.(*InterfaceType); ok {
-			if methodType, exists := iface.Methods[e.Member.Value]; exists {
-				if ifaceReceiverMap, ok := c.ifaceReceivers[iface.Name]; ok {
-					if recv, ok := ifaceReceiverMap[e.Member.Value]; ok {
-						if recv == ast.RecvMutRef && !ref.Mutable {
-							line, col := e.Member.Pos()
-							c.error(line, col, "cannot call &mut self method '%s' through immutable interface reference", e.Member.Value)
-						}
-					}
-				}
-				return methodType
-			}
-			line, col := e.Member.Pos()
-			c.error(line, col, "interface %s has no method %s", iface.Name, e.Member.Value)
-			return Any
-		}
-	}
-	return nil
 }
 
 func (c *Checker) resolveTypeExpr(typeExpr ast.TypeExpr) Type {
@@ -1248,19 +897,4 @@ func (c *Checker) isAssignable(target, source Type) bool {
 		return true
 	}
 	return false
-}
-
-func receiverKindName(kind ast.ReceiverKind) string {
-	switch kind {
-	case ast.RecvRef:
-		return "&self"
-	case ast.RecvMutRef:
-		return "&mut self"
-	case ast.RecvValue:
-		return "self"
-	case ast.RecvNone:
-		return "none"
-	default:
-		return "unknown"
-	}
 }
