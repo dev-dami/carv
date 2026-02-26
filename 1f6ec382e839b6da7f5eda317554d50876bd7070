@@ -1,0 +1,21 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.4",
+  "base_commit_sha": "1f6ec382e839b6da7f5eda317554d50876bd7070",
+  "prompts": {
+    "37d15d5bbda6cc83": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c95d6-331e-7b32-a70d-b3eef180c19c",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  }
+}
