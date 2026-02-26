@@ -1,0 +1,34 @@
+let name = "Carv";
+let version = "0.4.0";
+println(f"Welcome to {name} v{version}!");
+
+class Point {
+    x: int = 0
+    y: int = 0
+}
+
+let point = new Point;
+point.x = 10;
+point.y = 20;
+println(f"point: ({point.x}, {point.y})");
+
+fn divide(a: int, b: int) {
+    if b == 0 {
+        return Err("division by zero");
+    }
+    return Ok(a / b);
+}
+
+let result = divide(10, 2);
+match result {
+    Ok(v) => println(f"10 / 2 = {v}"),
+    Err(e) => println(f"error: {e}"),
+};
+
+let scores = {"alice": 95, "bob": 87, "charlie": 92};
+println(f"scores: {scores}");
+
+let numbers = [1, 2, 3, 4, 5];
+for n in numbers {
+    println(f"n = {n}");
+}

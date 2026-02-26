@@ -1,4 +1,4 @@
-[← Architecture](architecture.md) | **Built-ins** | [Contributing →](../CONTRIBUTING.md)
+[← Architecture](architecture.md) | **Built-ins** | [Examples](examples.md) | [Contributing →](../CONTRIBUTING.md)
 
 ---
 
@@ -9,7 +9,7 @@ Reference for all built-in functions available in Carv.
 ## Output
 
 ### `print(...args)`
-Prints arguments to stdout, space-separated, with newline.
+Prints arguments to stdout, space-separated, without a trailing newline.
 
 ```carv
 print("hello", "world");  // hello world
@@ -17,7 +17,7 @@ print(1, 2, 3);           // 1 2 3
 ```
 
 ### `println(...args)`
-Same as `print`. (They're identical, I just added both because why not.)
+Prints arguments to stdout, space-separated, with a trailing newline.
 
 ## Type Conversion
 
@@ -335,6 +335,35 @@ Create a directory (and parent directories).
 mkdir("build/output");
 ```
 
+### `remove_file(path)`
+Delete a file.
+
+```carv
+remove_file("old.txt");
+```
+
+### `rename_file(old_path, new_path)`
+Rename or move a file.
+
+```carv
+rename_file("old.txt", "new.txt");
+```
+
+### `read_dir(path) -> array`
+Read directory entries and return sorted file/directory names.
+
+```carv
+let entries = read_dir(".");
+println(entries);
+```
+
+### `cwd() -> string`
+Get current working directory.
+
+```carv
+println(cwd());
+```
+
 ## Networking (TCP)
 
 Use these via the built-in `net` or `web` module:
@@ -398,21 +427,6 @@ Crash with error message.
 panic("something went wrong");
 ```
 
-## Ownership
-
-### `clone(value) -> value`
-Deep copy of any move type (string, array, map, or class instance).
-
-```carv
-let original = "hello";
-let copy = original.clone();
-print(original);  // OK: "hello"
-print(copy);      // OK: "hello"
-
-let arr = [1, 2, 3];
-let arr_copy = arr.clone();
-```
-
 ---
 
-[← Architecture](architecture.md) | **Built-ins** | [Contributing →](../CONTRIBUTING.md)
+[← Architecture](architecture.md) | **Built-ins** | [Examples](examples.md) | [Contributing →](../CONTRIBUTING.md)

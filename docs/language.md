@@ -1,4 +1,4 @@
-[← Back to README](../README.md) | **Language Guide** | [Architecture →](architecture.md)
+[← Back to README](../README.md) | **Language Guide** | [API Reference](api.md) | [Architecture →](architecture.md)
 
 ---
 
@@ -92,17 +92,6 @@ print(t);       // OK: "hello"
 
 mut x = "world";
 x = "new";      // old value dropped, new value assigned
-```
-
-### clone() for Deep Copy
-
-Use `clone()` to explicitly deep copy a move type:
-
-```carv
-let a = "hello";
-let b = a.clone();  // deep copy
-print(a);           // OK
-print(b);           // OK
 ```
 
 ## Borrowing
@@ -489,7 +478,6 @@ fn calculate() -> Result {
 - `int(x)` - convert to int
 - `float(x)` - convert to float
 - `type_of(x)` - get type as string
-- `clone(x)` - deep copy of any move type (string, array, map, class instance)
 
 ### Arrays
 - `push(arr, item)` - return new array with item appended
@@ -528,6 +516,10 @@ fn calculate() -> Result {
 - `append_file(path, content)` - append to file
 - `file_exists(path)` - check if file exists
 - `mkdir(path)` - create directory
+- `remove_file(path)` - delete file
+- `rename_file(old_path, new_path)` - rename/move file
+- `read_dir(path)` - list directory entries
+- `cwd()` - current working directory
 
 ### Networking (TCP)
 - Import built-in module: `require "net" as net;` (or `require "web" as web;`)
@@ -558,4 +550,4 @@ fn calculate() -> Result {
 
 ---
 
-[← Back to README](../README.md) | **Language Guide** | [Architecture →](architecture.md)
+[← Back to README](../README.md) | **Language Guide** | [API Reference](api.md) | [Architecture →](architecture.md)

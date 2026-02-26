@@ -1,4 +1,4 @@
-[← Language Guide](language.md) | **Architecture** | [Built-ins →](builtins.md)
+[← Language Guide](language.md) | [API Reference](api.md) | **Architecture** | [Built-ins →](builtins.md)
 
 ---
 
@@ -35,7 +35,11 @@ Key files:
 
 Pratt parser (operator precedence parsing) for expressions, recursive descent for statements.
 
-The parser is probably the messiest part of the codebase. It works but could use some cleanup.
+Key files:
+- `parser.go` - parser setup + statement parsing
+- `pratt.go` - expression parsing and precedence logic
+- `parser_decls.go` - class/interface/impl parsing
+- `parser_types.go` - type expression parsing
 
 ### `pkg/types`
 
@@ -50,12 +54,20 @@ Produces a `CheckResult` with:
 
 Implements ownership tracking (move/drop), borrow checking (&T / &mut T), and a warnings system for non-fatal violations.
 
+Key files:
+- `checker.go` - checker core + diagnostics
+- `ownership.go` - move/ownership rules
+- `borrow.go` - borrow state and borrow checks
+- `interface.go` - interface + impl validation
+- `async.go` - async/await validation
+
 ### `pkg/eval`
 
 Tree-walking interpreter. Useful for quick iteration and testing without going through the C compilation step.
 
 Key files:
-- `eval.go` - main evaluation logic
+- `eval.go` - dispatcher and core statement eval
+- `eval_*.go` - expression/operation evaluators split by concern
 - `object.go` - runtime value types
 - `builtins.go` - built-in functions
 - `environment.go` - variable scoping
@@ -139,4 +151,4 @@ It's a long road but that's half the fun. Getting closer though!
 
 ---
 
-[← Language Guide](language.md) | **Architecture** | [Built-ins →](builtins.md)
+[← Language Guide](language.md) | [API Reference](api.md) | **Architecture** | [Built-ins →](builtins.md)

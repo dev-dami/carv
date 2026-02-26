@@ -32,7 +32,6 @@ uninstall:
 
 clean:
 	rm -rf $(BUILD_DIR)
-	rm -f examples/*.c examples/hello examples/showcase
 	$(GO) clean
 
 fmt:
@@ -49,14 +48,14 @@ lint-fix:
 check: fmt lint test
 
 run: build
-	./$(BUILD_DIR)/$(BINARY_NAME) run examples/hello.carv
+	./$(BUILD_DIR)/$(BINARY_NAME) run docs/samples/hello.carv
 
 repl: build
 	./$(BUILD_DIR)/$(BINARY_NAME) repl
 
 examples: build
-	./$(BUILD_DIR)/$(BINARY_NAME) run examples/hello.carv
-	./$(BUILD_DIR)/$(BINARY_NAME) run examples/showcase.carv
+	./$(BUILD_DIR)/$(BINARY_NAME) run docs/samples/hello.carv
+	./$(BUILD_DIR)/$(BINARY_NAME) run docs/samples/showcase.carv
 
 help:
 	@echo "Carv Programming Language"
@@ -73,7 +72,7 @@ help:
 	@echo "  make lint          Run golangci-lint"
 	@echo "  make lint-fix      Run golangci-lint with auto-fix"
 	@echo "  make check         Run fmt, lint, and test"
-	@echo "  make run           Build and run examples/hello.carv"
+	@echo "  make run           Build and run docs/samples/hello.carv"
 	@echo "  make repl          Start interactive REPL"
-	@echo "  make examples      Compile example programs"
+	@echo "  make examples      Run maintained docs sample programs"
 	@echo "  make help          Show this help"

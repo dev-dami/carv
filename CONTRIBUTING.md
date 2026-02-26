@@ -50,7 +50,7 @@ No strict rules, just:
 ```bash
 make test        # run all tests
 make build       # build the binary
-make examples    # run example programs
+make examples    # run maintained docs sample programs
 ```
 
 ## Project Structure
@@ -65,8 +65,8 @@ pkg/
   eval/         # interpreter
   codegen/      # C code generator (ownership-aware, borrow support, vtable dispatch)
   module/       # module loader & carv.toml config
-examples/       # example programs
 docs/           # documentation
+docs/samples/   # runnable docs sample programs
 ```
 
 **Ownership & Borrowing**: The type checker (`pkg/types`) tracks ownership (move/drop) and enforces borrow rules. The codegen (`pkg/codegen`) emits ownership-aware C code with proper drop calls and borrow support (&T / &mut T).

@@ -48,7 +48,7 @@ Features that actually work:
 - **Closures** - first-class functions with environment capture
 - **Module system** with `require` (Rust-inspired, package manager ready)
 - **String interpolation** with `f"hello {name}"`
-- **Ownership system** (move semantics, `clone()` for deep copy)
+- **Ownership system** (move semantics)
 - **Borrowing** (`&T` / `&mut T`)
 - **Interfaces** (`interface` / `impl` with vtable-based dynamic dispatch)
 - **Async/await** (compiles to state machines)
@@ -72,7 +72,6 @@ println(f"2 + 2 = {2 + 2}");
 // ownership: move semantics
 let s = "hello";
 let t = s;              // s is moved, now invalid
-let u = s.clone();      // explicit deep copy
 
 // borrowing: safe references
 fn print_len(s: &string) -> int {
@@ -206,8 +205,10 @@ For async programs compiled with `carv build`, use `async fn carv_main() -> int`
 ## Docs
 
 - [Language Guide](docs/language.md)
+- [API Reference](docs/api.md)
 - [Architecture](docs/architecture.md)
 - [Built-ins](docs/builtins.md)
+- [Examples](docs/examples.md)
 - [Contributing](CONTRIBUTING.md)
 
 ---

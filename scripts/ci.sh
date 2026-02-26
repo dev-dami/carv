@@ -51,11 +51,11 @@ else
 fi
 
 echo ""
-echo "[5/5] Running examples..."
-if ./build/carv run examples/hello.carv > /dev/null 2>&1; then
-    echo "  hello.carv OK"
+echo "[5/5] Running docs samples..."
+if ./build/carv run docs/samples/hello.carv > /dev/null 2>&1; then
+    echo "  docs/samples/hello.carv OK"
 else
-    echo "  hello.carv failed"
+    echo "  docs/samples/hello.carv failed"
 fi
 
 echo ""
