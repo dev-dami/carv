@@ -717,10 +717,14 @@ var builtins = map[string]*Builtin{
 			n, err := conn.Read(buf)
 			if err != nil {
 				if errors.Is(err, io.EOF) {
-					_ = tcpCloseHandle(connHandle.Value)
+					if closeErr := tcpCloseHandle(connHandle.Value); closeErr != nil {
+						return newError("tcp_read: cleanup failed for handle %d: %s", connHandle.Value, closeErr.Error())
+					}
 					return &String{Value: ""}
 				}
-				_ = tcpCloseHandle(connHandle.Value)
+				if closeErr := tcpCloseHandle(connHandle.Value); closeErr != nil {
+					return newError("tcp_read: %s (cleanup failed: %s)", err.Error(), closeErr.Error())
+				}
 				return newError("tcp_read: %s", err.Error())
 			}
 			return &String{Value: string(buf[:n])}
@@ -749,7 +753,9 @@ var builtins = map[string]*Builtin{
 
 			n, err := conn.Write([]byte(data.Value))
 			if err != nil {
-				_ = tcpCloseHandle(connHandle.Value)
+				if closeErr := tcpCloseHandle(connHandle.Value); closeErr != nil {
+					return newError("tcp_write: %s (cleanup failed: %s)", err.Error(), closeErr.Error())
+				}
 				return newError("tcp_write: %s", err.Error())
 			}
 			return &Integer{Value: int64(n)}
@@ -1035,7 +1041,7 @@ func tcpCloseHandle(handle int64) error {
 			}
 		}
 		if len(errs) > 0 {
-			return fmt.Errorf(strings.Join(errs, "; "))
+			return errors.New(strings.Join(errs, "; "))
 		}
 		return nil
 	}

@@ -22,13 +22,6 @@ func (c *Checker) popBorrows(prev map[string]*BorrowInfo) {
 	c.borrows = prev
 }
 
-func (c *Checker) hasActiveBorrow(name string) bool {
-	if info, exists := c.borrows[name]; exists {
-		return info.ImmutableCount > 0 || info.MutableActive
-	}
-	return false
-}
-
 func (c *Checker) checkBorrowExpression(e *ast.BorrowExpression) Type {
 	innerType := c.checkExpression(e.Value)
 
