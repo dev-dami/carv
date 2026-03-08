@@ -1,0 +1,25 @@
+docs/samples/hello.carv
+  b24c765ec37d0aad 14-15
+docs/samples/showcase.carv
+  b24c765ec37d0aad 2,12,14-15,18-19,23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "1c6f11c99c33bd2d427e8752a8bdbb8ec29a9934",
+  "prompts": {
+    "b24c765ec37d0aad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2825a173-d764-4520-86c1-edf309d6b0f3",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 19,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    }
+  }
+}
