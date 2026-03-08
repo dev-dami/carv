@@ -636,6 +636,15 @@ func (c *Checker) checkCallExpression(e *ast.CallExpression) Type {
 		return ft.Return
 	}
 
+	// Builtins that only read their arguments (no ownership transfer)
+	borrowOnly := false
+	if ident, ok := e.Function.(*ast.Identifier); ok {
+		switch ident.Value {
+		case "print", "println", "len", "type_of", "clone":
+			borrowOnly = true
+		}
+	}
+
 	for i, arg := range e.Arguments {
 		argType := c.checkExpression(arg)
 		if i < len(ft.Params) {
@@ -646,7 +655,7 @@ func (c *Checker) checkCallExpression(e *ast.CallExpression) Type {
 			}
 		}
 
-		if IsMoveType(argType) {
+		if IsMoveType(argType) && !borrowOnly {
 			line, _ := arg.Pos()
 			c.markMoveFromExpression(arg, line, "function call")
 		}

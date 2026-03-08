@@ -1183,3 +1183,69 @@ fn main() {
 		t.Fatalf("expected no Unknown_* module call lowering artifacts, got:\n%s", output)
 	}
 }
+
+func TestMapLiteralGeneratesMapNew(t *testing.T) {
+	output := generateOutputFromSource(t, `let m = {"a": 1, "b": 2};`)
+
+	if !strings.Contains(output, "carv_map") {
+		t.Errorf("expected carv_map type, got:\n%s", output)
+	}
+	if !strings.Contains(output, "carv_map_new(") {
+		t.Errorf("expected carv_map_new call, got:\n%s", output)
+	}
+	if !strings.Contains(output, "carv_map_set_int(") {
+		t.Errorf("expected carv_map_set_int calls, got:\n%s", output)
+	}
+}
+
+func TestMapLiteralGeneratedCCompiles(t *testing.T) {
+	output := generateOutputFromSource(t, `
+let scores = {"alice": 95, "bob": 87};
+println(scores);
+`)
+	compileGeneratedC(t, output)
+}
+
+func TestResultFunctionGeneratedCCompiles(t *testing.T) {
+	output := generateOutputFromSource(t, `
+fn divide(a: int, b: int) {
+    if b == 0 {
+        return Err("division by zero");
+    }
+    return Ok(a / b);
+}
+
+let result = divide(10, 2);
+match result {
+    Ok(v) => println(v),
+    Err(e) => println(e),
+};
+`)
+	compileGeneratedC(t, output)
+}
+
+func TestResultZeroValue(t *testing.T) {
+	gen := NewCGenerator()
+	result := gen.zeroValue("carv_result")
+	if result != "(carv_result){0}" {
+		t.Errorf("zeroValue(carv_result) = %q, expected '(carv_result){0}'", result)
+	}
+}
+
+func TestMapZeroValue(t *testing.T) {
+	gen := NewCGenerator()
+	result := gen.zeroValue("carv_map")
+	if result != "carv_map_new(8)" {
+		t.Errorf("zeroValue(carv_map) = %q, expected 'carv_map_new(8)'", result)
+	}
+}
+
+func TestMapPrintGeneratesCarv_print_map(t *testing.T) {
+	output := generateOutputFromSource(t, `
+let m = {"key": 42};
+println(m);
+`)
+	if !strings.Contains(output, "carv_print_map(") {
+		t.Errorf("expected carv_print_map call for map printing, got:\n%s", output)
+	}
+}

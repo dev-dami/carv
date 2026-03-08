@@ -168,7 +168,7 @@ func checkerTypeToCString(t types.Type) string {
 		return "carv_int_array"
 	}
 	if _, ok := t.(*types.MapType); ok {
-		return "carv_int"
+		return "carv_map"
 	}
 	if cls, ok := t.(*types.ClassType); ok {
 		return cls.Name + "*"
@@ -201,7 +201,7 @@ func checkerTypeToCString(t types.Type) string {
 func (g *CGenerator) resolveType(expr ast.Expression) string {
 	if g.typeInfo != nil {
 		if t, ok := g.typeInfo[expr]; ok {
-			if cs := checkerTypeToCString(t); cs != "" {
+			if cs := checkerTypeToCString(t); cs != "" && cs != "void" {
 				return cs
 			}
 		}
@@ -877,12 +877,134 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("typedef enum { CARV_TYPE_INT, CARV_TYPE_FLOAT, CARV_TYPE_BOOL, CARV_TYPE_STRING } carv_type_tag;")
 	g.writeln("typedef struct { carv_bool is_ok; carv_type_tag ok_tag; carv_type_tag err_tag; union { carv_int ok_int; carv_float ok_float; carv_bool ok_bool; carv_string ok_str; void* ok_ptr; } ok; union { carv_string err_str; carv_int err_code; } err; } carv_result;")
 	g.writeln("")
-	g.writeln("carv_result carv_ok_int(carv_int val) { carv_result r; r.is_ok = true; r.ok_tag = CARV_TYPE_INT; r.ok.ok_int = val; return r; }")
-	g.writeln("carv_result carv_ok_float(carv_float val) { carv_result r; r.is_ok = true; r.ok_tag = CARV_TYPE_FLOAT; r.ok.ok_float = val; return r; }")
-	g.writeln("carv_result carv_ok_bool(carv_bool val) { carv_result r; r.is_ok = true; r.ok_tag = CARV_TYPE_BOOL; r.ok.ok_bool = val; return r; }")
-	g.writeln("carv_result carv_ok_str(carv_string val) { carv_result r; r.is_ok = true; r.ok_tag = CARV_TYPE_STRING; r.ok.ok_str = val; return r; }")
-	g.writeln("carv_result carv_err_str(carv_string val) { carv_result r; r.is_ok = false; r.err_tag = CARV_TYPE_STRING; r.err.err_str = val; return r; }")
-	g.writeln("carv_result carv_err_code(carv_int val) { carv_result r; r.is_ok = false; r.err_tag = CARV_TYPE_INT; r.err.err_code = val; return r; }")
+	g.writeln("static carv_result carv_ok_int(carv_int val) { carv_result r; memset(&r, 0, sizeof(r)); r.is_ok = true; r.ok_tag = CARV_TYPE_INT; r.ok.ok_int = val; return r; }")
+	g.writeln("static carv_result carv_ok_float(carv_float val) { carv_result r; memset(&r, 0, sizeof(r)); r.is_ok = true; r.ok_tag = CARV_TYPE_FLOAT; r.ok.ok_float = val; return r; }")
+	g.writeln("static carv_result carv_ok_bool(carv_bool val) { carv_result r; memset(&r, 0, sizeof(r)); r.is_ok = true; r.ok_tag = CARV_TYPE_BOOL; r.ok.ok_bool = val; return r; }")
+	g.writeln("static carv_result carv_ok_str(carv_string val) { carv_result r; memset(&r, 0, sizeof(r)); r.is_ok = true; r.ok_tag = CARV_TYPE_STRING; r.ok.ok_str = val; return r; }")
+	g.writeln("static carv_result carv_err_str(carv_string val) { carv_result r; memset(&r, 0, sizeof(r)); r.is_ok = false; r.err_tag = CARV_TYPE_STRING; r.err.err_str = val; return r; }")
+	g.writeln("static carv_result carv_err_code(carv_int val) { carv_result r; memset(&r, 0, sizeof(r)); r.is_ok = false; r.err_tag = CARV_TYPE_INT; r.err.err_code = val; return r; }")
+	g.writeln("")
+
+	// Map runtime: open-addressing hash map with string keys
+	g.writeln("// --- Map runtime ---")
+	g.writeln("typedef enum { CARV_MAP_VAL_INT, CARV_MAP_VAL_FLOAT, CARV_MAP_VAL_BOOL, CARV_MAP_VAL_STRING } carv_map_val_tag;")
+	g.writeln("typedef struct { carv_string key; carv_map_val_tag tag; union { carv_int i; carv_float f; carv_bool b; carv_string s; } val; bool occupied; } carv_map_entry;")
+	g.writeln("typedef struct { carv_map_entry* entries; carv_int cap; carv_int len; } carv_map;")
+	g.writeln("")
+	g.writeln("static uint64_t carv_map_hash(carv_string key) {")
+	g.writeln("    uint64_t h = 14695981039346656037ULL;")
+	g.writeln("    for (size_t i = 0; i < key.len; i++) {")
+	g.writeln("        h ^= (uint64_t)(unsigned char)key.data[i];")
+	g.writeln("        h *= 1099511628211ULL;")
+	g.writeln("    }")
+	g.writeln("    return h;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static carv_map carv_map_new(carv_int cap) {")
+	g.writeln("    carv_map m;")
+	g.writeln("    m.cap = cap < 8 ? 8 : cap;")
+	g.writeln("    m.len = 0;")
+	g.writeln("    m.entries = (carv_map_entry*)carv_arena_alloc(m.cap * sizeof(carv_map_entry));")
+	g.writeln("    memset(m.entries, 0, m.cap * sizeof(carv_map_entry));")
+	g.writeln("    return m;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static carv_map_entry* carv_map_find(carv_map* m, carv_string key) {")
+	g.writeln("    uint64_t h = carv_map_hash(key);")
+	g.writeln("    for (carv_int i = 0; i < m->cap; i++) {")
+	g.writeln("        carv_int idx = (carv_int)((h + (uint64_t)i) % (uint64_t)m->cap);")
+	g.writeln("        carv_map_entry* e = &m->entries[idx];")
+	g.writeln("        if (!e->occupied) return e;")
+	g.writeln("        if (e->key.len == key.len && memcmp(e->key.data, key.data, key.len) == 0) return e;")
+	g.writeln("    }")
+	g.writeln("    return NULL;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static void carv_map_grow(carv_map* m) {")
+	g.writeln("    carv_int old_cap = m->cap;")
+	g.writeln("    carv_map_entry* old = m->entries;")
+	g.writeln("    m->cap = old_cap * 2;")
+	g.writeln("    m->entries = (carv_map_entry*)carv_arena_alloc(m->cap * sizeof(carv_map_entry));")
+	g.writeln("    memset(m->entries, 0, m->cap * sizeof(carv_map_entry));")
+	g.writeln("    m->len = 0;")
+	g.writeln("    for (carv_int i = 0; i < old_cap; i++) {")
+	g.writeln("        if (old[i].occupied) {")
+	g.writeln("            carv_map_entry* e = carv_map_find(m, old[i].key);")
+	g.writeln("            *e = old[i];")
+	g.writeln("            m->len++;")
+	g.writeln("        }")
+	g.writeln("    }")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static void carv_map_set_int(carv_map* m, carv_string key, carv_int val) {")
+	g.writeln("    if (m->len * 2 >= m->cap) carv_map_grow(m);")
+	g.writeln("    carv_map_entry* e = carv_map_find(m, key);")
+	g.writeln("    if (!e->occupied) { m->len++; e->occupied = true; e->key = key; }")
+	g.writeln("    e->tag = CARV_MAP_VAL_INT; e->val.i = val;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static void carv_map_set_float(carv_map* m, carv_string key, carv_float val) {")
+	g.writeln("    if (m->len * 2 >= m->cap) carv_map_grow(m);")
+	g.writeln("    carv_map_entry* e = carv_map_find(m, key);")
+	g.writeln("    if (!e->occupied) { m->len++; e->occupied = true; e->key = key; }")
+	g.writeln("    e->tag = CARV_MAP_VAL_FLOAT; e->val.f = val;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static void carv_map_set_bool(carv_map* m, carv_string key, carv_bool val) {")
+	g.writeln("    if (m->len * 2 >= m->cap) carv_map_grow(m);")
+	g.writeln("    carv_map_entry* e = carv_map_find(m, key);")
+	g.writeln("    if (!e->occupied) { m->len++; e->occupied = true; e->key = key; }")
+	g.writeln("    e->tag = CARV_MAP_VAL_BOOL; e->val.b = val;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static void carv_map_set_str(carv_map* m, carv_string key, carv_string val) {")
+	g.writeln("    if (m->len * 2 >= m->cap) carv_map_grow(m);")
+	g.writeln("    carv_map_entry* e = carv_map_find(m, key);")
+	g.writeln("    if (!e->occupied) { m->len++; e->occupied = true; e->key = key; }")
+	g.writeln("    e->tag = CARV_MAP_VAL_STRING; e->val.s = val;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static carv_int carv_map_get_int(carv_map* m, carv_string key) {")
+	g.writeln("    carv_map_entry* e = carv_map_find(m, key);")
+	g.writeln("    if (e && e->occupied) return e->val.i;")
+	g.writeln("    return 0;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static carv_float carv_map_get_float(carv_map* m, carv_string key) {")
+	g.writeln("    carv_map_entry* e = carv_map_find(m, key);")
+	g.writeln("    if (e && e->occupied) return e->val.f;")
+	g.writeln("    return 0.0;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static carv_bool carv_map_get_bool(carv_map* m, carv_string key) {")
+	g.writeln("    carv_map_entry* e = carv_map_find(m, key);")
+	g.writeln("    if (e && e->occupied) return e->val.b;")
+	g.writeln("    return false;")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static carv_string carv_map_get_str(carv_map* m, carv_string key) {")
+	g.writeln("    carv_map_entry* e = carv_map_find(m, key);")
+	g.writeln("    if (e && e->occupied) return e->val.s;")
+	g.writeln("    return (carv_string){NULL, 0, false};")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static void carv_print_map(carv_map m) {")
+	g.writeln("    printf(\"{\");")
+	g.writeln("    int first = 1;")
+	g.writeln("    for (carv_int i = 0; i < m.cap; i++) {")
+	g.writeln("        if (!m.entries[i].occupied) continue;")
+	g.writeln("        if (!first) printf(\", \");")
+	g.writeln("        first = 0;")
+	g.writeln("        printf(\"\\\"%s\\\": \", m.entries[i].key.data);")
+	g.writeln("        switch (m.entries[i].tag) {")
+	g.writeln("        case CARV_MAP_VAL_INT: printf(\"%lld\", m.entries[i].val.i); break;")
+	g.writeln("        case CARV_MAP_VAL_FLOAT: printf(\"%g\", m.entries[i].val.f); break;")
+	g.writeln("        case CARV_MAP_VAL_BOOL: printf(\"%s\", m.entries[i].val.b ? \"true\" : \"false\"); break;")
+	g.writeln("        case CARV_MAP_VAL_STRING: printf(\"\\\"%s\\\"\", m.entries[i].val.s.data); break;")
+	g.writeln("        }")
+	g.writeln("    }")
+	g.writeln("    printf(\"}\");")
+	g.writeln("}")
 	g.writeln("")
 
 	if g.hasAsync {
@@ -1495,7 +1617,17 @@ func (g *CGenerator) zeroValue(cType string) string {
 		return "false"
 	case "carv_string":
 		return "(carv_string){NULL, 0, false}"
+	case "carv_result":
+		return "(carv_result){0}"
+	case "carv_map":
+		return "carv_map_new(8)"
 	default:
+		if strings.HasSuffix(cType, "_array") {
+			return "(" + cType + "){NULL, 0, 0}"
+		}
+		if strings.HasSuffix(cType, "*") {
+			return "NULL"
+		}
 		return "0"
 	}
 }
@@ -1809,6 +1941,8 @@ func (g *CGenerator) generateExpression(expr ast.Expression) string {
 		return g.safeName(e.Value)
 	case *ast.ArrayLiteral:
 		return g.generateArrayLiteral(e)
+	case *ast.MapLiteral:
+		return g.generateMapLiteral(e)
 	case *ast.PrefixExpression:
 		return g.generatePrefixExpression(e)
 	case *ast.InfixExpression:
@@ -1868,6 +2002,30 @@ func (g *CGenerator) generateInfixExpression(e *ast.InfixExpression) string {
 }
 
 func (g *CGenerator) generateAssignExpression(e *ast.AssignExpression) string {
+	// Handle map index assignment: map["key"] = value
+	if idx, ok := e.Left.(*ast.IndexExpression); ok && e.Operator == "=" {
+		leftType := g.resolveType(idx.Left)
+		if leftType == "carv_map" {
+			mapExpr := g.generateExpression(idx.Left)
+			keyExpr := g.generateExpression(idx.Index)
+			right := g.generateExpression(e.Right)
+			valType := g.resolveType(e.Right)
+
+			var setter string
+			switch valType {
+			case "carv_float":
+				setter = "carv_map_set_float"
+			case "carv_bool":
+				setter = "carv_map_set_bool"
+			case "carv_string":
+				setter = "carv_map_set_str"
+			default:
+				setter = "carv_map_set_int"
+			}
+			return fmt.Sprintf("%s(&%s, %s, %s)", setter, mapExpr, keyExpr, right)
+		}
+	}
+
 	left := g.generateExpression(e.Left)
 	right := g.generateExpression(e.Right)
 
@@ -2158,6 +2316,8 @@ func (g *CGenerator) generatePrintCall(e *ast.CallExpression) string {
 			parts = append(parts, fmt.Sprintf("carv_print_string_array(%s)", argStr))
 		case "carv_bool_array":
 			parts = append(parts, fmt.Sprintf("carv_print_bool_array(%s)", argStr))
+		case "carv_map":
+			parts = append(parts, fmt.Sprintf("carv_print_map(%s)", argStr))
 		case "carv_int":
 			parts = append(parts, fmt.Sprintf("printf(\"%%lld\", %s)", argStr))
 		case "carv_float":
@@ -2256,6 +2416,26 @@ func (g *CGenerator) generateNewExpression(e *ast.NewExpression) string {
 func (g *CGenerator) generateIndexExpression(e *ast.IndexExpression) string {
 	left := g.generateExpression(e.Left)
 	index := g.generateExpression(e.Index)
+
+	leftType := g.resolveType(e.Left)
+	if leftType == "carv_map" {
+		// Determine the value type from type info if available
+		if g.typeInfo != nil {
+			if t, ok := g.typeInfo[e]; ok {
+				valC := checkerTypeToCString(t)
+				switch valC {
+				case "carv_float":
+					return fmt.Sprintf("carv_map_get_float(&%s, %s)", left, index)
+				case "carv_bool":
+					return fmt.Sprintf("carv_map_get_bool(&%s, %s)", left, index)
+				case "carv_string":
+					return fmt.Sprintf("carv_map_get_str(&%s, %s)", left, index)
+				}
+			}
+		}
+		return fmt.Sprintf("carv_map_get_int(&%s, %s)", left, index)
+	}
+
 	return fmt.Sprintf("%s.data[%s]", left, index)
 }
 
@@ -2282,6 +2462,38 @@ func (g *CGenerator) generateArrayLiteral(e *ast.ArrayLiteral) string {
 		strings.Join(elements, ", "),
 		len(e.Elements),
 		len(e.Elements))
+}
+
+func (g *CGenerator) generateMapLiteral(e *ast.MapLiteral) string {
+	tempName := fmt.Sprintf("__map_%d", g.tempCounter)
+	g.tempCounter++
+
+	cap := len(e.Pairs)
+	if cap < 8 {
+		cap = 8
+	}
+	g.addPreamble(fmt.Sprintf("carv_map %s = carv_map_new(%d);", tempName, cap))
+
+	for key, val := range e.Pairs {
+		keyExpr := g.generateExpression(key)
+		valExpr := g.generateExpression(val)
+		valType := g.resolveType(val)
+
+		var setter string
+		switch valType {
+		case "carv_float":
+			setter = "carv_map_set_float"
+		case "carv_bool":
+			setter = "carv_map_set_bool"
+		case "carv_string":
+			setter = "carv_map_set_str"
+		default:
+			setter = "carv_map_set_int"
+		}
+		g.addPreamble(fmt.Sprintf("%s(&%s, %s, %s);", setter, tempName, keyExpr, valExpr))
+	}
+
+	return tempName
 }
 
 func (g *CGenerator) getArrayType(elemType string) string {
@@ -2485,6 +2697,8 @@ func (g *CGenerator) inferExprType(expr ast.Expression) string {
 			return g.getArrayType(g.inferExprType(e.Elements[0]))
 		}
 		return "carv_int_array"
+	case *ast.MapLiteral:
+		return "carv_map"
 	case *ast.OkExpression, *ast.ErrExpression:
 		return "carv_result"
 	case *ast.TryExpression:
