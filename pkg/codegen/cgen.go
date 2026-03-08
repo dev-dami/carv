@@ -874,6 +874,82 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("}")
 	g.writeln("")
 
+	// GPIO HAL
+	g.writeln("#ifdef CARV_TARGET_ARM")
+	g.writeln("// ARM implementations provided by vendor HAL at link time")
+	g.writeln("extern void carv_pin_mode(carv_int pin, carv_int mode);")
+	g.writeln("extern void carv_digital_write(carv_int pin, carv_bool value);")
+	g.writeln("extern carv_bool carv_digital_read(carv_int pin);")
+	g.writeln("extern carv_int carv_analog_read(carv_int pin);")
+	g.writeln("extern void carv_analog_write(carv_int pin, carv_int value);")
+	g.writeln("#else")
+	g.writeln("// Host stubs for testing")
+	g.writeln("static void carv_pin_mode(carv_int pin, carv_int mode) { (void)pin; (void)mode; }")
+	g.writeln("static void carv_digital_write(carv_int pin, carv_bool value) { (void)pin; (void)value; }")
+	g.writeln("static carv_bool carv_digital_read(carv_int pin) { (void)pin; return false; }")
+	g.writeln("static carv_int carv_analog_read(carv_int pin) { (void)pin; return 0; }")
+	g.writeln("static void carv_analog_write(carv_int pin, carv_int value) { (void)pin; (void)value; }")
+	g.writeln("#endif")
+	g.writeln("")
+
+	// UART HAL
+	g.writeln("#ifdef CARV_TARGET_ARM")
+	g.writeln("extern carv_int carv_uart_init(carv_int port, carv_int baud);")
+	g.writeln("extern carv_int carv_uart_write(carv_int handle, carv_string data);")
+	g.writeln("extern carv_string carv_uart_read(carv_int handle, carv_int max_bytes);")
+	g.writeln("extern carv_int carv_uart_available(carv_int handle);")
+	g.writeln("#else")
+	g.writeln("static carv_int carv_uart_init(carv_int port, carv_int baud) { (void)port; (void)baud; return 0; }")
+	g.writeln("static carv_int carv_uart_write(carv_int handle, carv_string data) { (void)handle; (void)data; return 0; }")
+	g.writeln("static carv_string carv_uart_read(carv_int handle, carv_int max_bytes) { (void)handle; (void)max_bytes; return carv_string_lit(\"\"); }")
+	g.writeln("static carv_int carv_uart_available(carv_int handle) { (void)handle; return 0; }")
+	g.writeln("#endif")
+	g.writeln("")
+
+	// SPI HAL
+	g.writeln("#ifdef CARV_TARGET_ARM")
+	g.writeln("extern carv_int carv_spi_init(carv_int bus, carv_int speed);")
+	g.writeln("extern carv_string carv_spi_transfer(carv_int handle, carv_string data);")
+	g.writeln("extern carv_int carv_spi_write(carv_int handle, carv_string data);")
+	g.writeln("extern carv_string carv_spi_read(carv_int handle, carv_int len);")
+	g.writeln("#else")
+	g.writeln("static carv_int carv_spi_init(carv_int bus, carv_int speed) { (void)bus; (void)speed; return 0; }")
+	g.writeln("static carv_string carv_spi_transfer(carv_int handle, carv_string data) { (void)handle; (void)data; return carv_string_lit(\"\"); }")
+	g.writeln("static carv_int carv_spi_write(carv_int handle, carv_string data) { (void)handle; (void)data; return 0; }")
+	g.writeln("static carv_string carv_spi_read(carv_int handle, carv_int len) { (void)handle; (void)len; return carv_string_lit(\"\"); }")
+	g.writeln("#endif")
+	g.writeln("")
+
+	// I2C HAL
+	g.writeln("#ifdef CARV_TARGET_ARM")
+	g.writeln("extern carv_int carv_i2c_init(carv_int bus, carv_int addr);")
+	g.writeln("extern carv_int carv_i2c_write(carv_int handle, carv_string data);")
+	g.writeln("extern carv_string carv_i2c_read(carv_int handle, carv_int len);")
+	g.writeln("#else")
+	g.writeln("static carv_int carv_i2c_init(carv_int bus, carv_int addr) { (void)bus; (void)addr; return 0; }")
+	g.writeln("static carv_int carv_i2c_write(carv_int handle, carv_string data) { (void)handle; (void)data; return 0; }")
+	g.writeln("static carv_string carv_i2c_read(carv_int handle, carv_int len) { (void)handle; (void)len; return carv_string_lit(\"\"); }")
+	g.writeln("#endif")
+	g.writeln("")
+
+	// Timer HAL
+	g.writeln("#ifdef CARV_TARGET_ARM")
+	g.writeln("extern carv_int carv_timer_init(carv_int id, carv_int prescaler);")
+	g.writeln("extern void carv_timer_start(carv_int handle);")
+	g.writeln("extern void carv_timer_stop(carv_int handle);")
+	g.writeln("extern carv_int carv_timer_get_count(carv_int handle);")
+	g.writeln("extern void carv_delay_ms(carv_int ms);")
+	g.writeln("extern void carv_delay_us(carv_int us);")
+	g.writeln("#else")
+	g.writeln("static carv_int carv_timer_init(carv_int id, carv_int prescaler) { (void)id; (void)prescaler; return 0; }")
+	g.writeln("static void carv_timer_start(carv_int handle) { (void)handle; }")
+	g.writeln("static void carv_timer_stop(carv_int handle) { (void)handle; }")
+	g.writeln("static carv_int carv_timer_get_count(carv_int handle) { (void)handle; return 0; }")
+	g.writeln("static void carv_delay_ms(carv_int ms) { (void)ms; }")
+	g.writeln("static void carv_delay_us(carv_int us) { (void)us; }")
+	g.writeln("#endif")
+	g.writeln("")
+
 	g.writeln("typedef enum { CARV_TYPE_INT, CARV_TYPE_FLOAT, CARV_TYPE_BOOL, CARV_TYPE_STRING } carv_type_tag;")
 	g.writeln("typedef struct { carv_bool is_ok; carv_type_tag ok_tag; carv_type_tag err_tag; union { carv_int ok_int; carv_float ok_float; carv_bool ok_bool; carv_string ok_str; void* ok_ptr; } ok; union { carv_string err_str; carv_int err_code; } err; } carv_result;")
 	g.writeln("")
@@ -2212,6 +2288,23 @@ func (g *CGenerator) generateBuiltinModuleCall(member *ast.MemberExpression, arg
 		}
 		fd := g.generateExpression(args[0])
 		return fmt.Sprintf("carv_tcp_close(%s)", fd), true
+
+	// GPIO HAL
+	case "pin_mode", "digital_write", "digital_read", "analog_read", "analog_write",
+		// UART HAL
+		"uart_init", "uart_write", "uart_read", "uart_available",
+		// SPI HAL
+		"spi_init", "spi_transfer", "spi_write", "spi_read",
+		// I2C HAL
+		"i2c_init", "i2c_write", "i2c_read",
+		// Timer HAL
+		"timer_init", "timer_start", "timer_stop", "timer_get_count", "delay_ms", "delay_us":
+		var argStrs []string
+		for _, arg := range args {
+			argStrs = append(argStrs, g.generateExpression(arg))
+		}
+		return fmt.Sprintf("carv_%s(%s)", member.Member.Value, strings.Join(argStrs, ", ")), true
+
 	default:
 		return "", false
 	}

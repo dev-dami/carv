@@ -139,6 +139,43 @@ func builtinModuleMemberTypes(moduleName string) map[string]Type {
 			"tcp_write":  &FunctionType{Params: []Type{Int, String}, Return: Int},
 			"tcp_close":  &FunctionType{Params: []Type{Int}, Return: Bool},
 		}
+	case "gpio":
+		return map[string]Type{
+			"pin_mode":      &FunctionType{Params: []Type{Int, Int}, Return: Void},
+			"digital_write": &FunctionType{Params: []Type{Int, Bool}, Return: Void},
+			"digital_read":  &FunctionType{Params: []Type{Int}, Return: Bool},
+			"analog_read":   &FunctionType{Params: []Type{Int}, Return: Int},
+			"analog_write":  &FunctionType{Params: []Type{Int, Int}, Return: Void},
+		}
+	case "uart":
+		return map[string]Type{
+			"uart_init":      &FunctionType{Params: []Type{Int, Int}, Return: Int},
+			"uart_write":     &FunctionType{Params: []Type{Int, String}, Return: Int},
+			"uart_read":      &FunctionType{Params: []Type{Int, Int}, Return: String},
+			"uart_available": &FunctionType{Params: []Type{Int}, Return: Int},
+		}
+	case "spi":
+		return map[string]Type{
+			"spi_init":     &FunctionType{Params: []Type{Int, Int}, Return: Int},
+			"spi_transfer": &FunctionType{Params: []Type{Int, String}, Return: String},
+			"spi_write":    &FunctionType{Params: []Type{Int, String}, Return: Int},
+			"spi_read":     &FunctionType{Params: []Type{Int, Int}, Return: String},
+		}
+	case "i2c":
+		return map[string]Type{
+			"i2c_init":  &FunctionType{Params: []Type{Int, Int}, Return: Int},
+			"i2c_write": &FunctionType{Params: []Type{Int, String}, Return: Int},
+			"i2c_read":  &FunctionType{Params: []Type{Int, Int}, Return: String},
+		}
+	case "timer":
+		return map[string]Type{
+			"timer_init":      &FunctionType{Params: []Type{Int, Int}, Return: Int},
+			"timer_start":     &FunctionType{Params: []Type{Int}, Return: Void},
+			"timer_stop":      &FunctionType{Params: []Type{Int}, Return: Void},
+			"timer_get_count": &FunctionType{Params: []Type{Int}, Return: Int},
+			"delay_ms":        &FunctionType{Params: []Type{Int}, Return: Void},
+			"delay_us":        &FunctionType{Params: []Type{Int}, Return: Void},
+		}
 	default:
 		return nil
 	}

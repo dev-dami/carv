@@ -1,6 +1,7 @@
 # Build output
 /build/
 /carv
+carv_modules/
 
 # Generated C files and binaries
 examples/*.c

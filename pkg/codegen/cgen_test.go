@@ -9,6 +9,7 @@ import (
 
 	"github.com/dev-dami/carv/pkg/lexer"
 	"github.com/dev-dami/carv/pkg/parser"
+	"github.com/dev-dami/carv/pkg/types"
 )
 
 func generateOutputFromSource(t *testing.T, input string) string {
@@ -1238,6 +1239,87 @@ func TestMapZeroValue(t *testing.T) {
 	if result != "carv_map_new(8)" {
 		t.Errorf("zeroValue(carv_map) = %q, expected 'carv_map_new(8)'", result)
 	}
+}
+
+func TestGPIOModuleLowering(t *testing.T) {
+	output := generateOutputFromSource(t, `
+require "gpio" as gpio;
+fn main() {
+	gpio.digital_write(13, true);
+}
+`)
+
+	if !strings.Contains(output, "carv_digital_write(13, true)") {
+		t.Fatalf("expected gpio.digital_write(13, true) to lower to carv_digital_write(13, true), got:\n%s", output)
+	}
+}
+
+func TestUARTModuleLowering(t *testing.T) {
+	output := generateOutputFromSource(t, `
+require "uart" as uart;
+fn main() {
+	let h = uart.uart_init(1, 9600);
+}
+`)
+
+	if !strings.Contains(output, "carv_uart_init(1, 9600)") {
+		t.Fatalf("expected uart.uart_init(1, 9600) to lower to carv_uart_init(1, 9600), got:\n%s", output)
+	}
+}
+
+func TestHALModulesGeneratedCCompiles(t *testing.T) {
+	input := `
+require "gpio" as gpio;
+require "uart" as uart;
+require "spi" as spi;
+require "i2c" as i2c;
+require "timer" as timer;
+fn main() {
+	gpio.pin_mode(13, 1);
+	gpio.digital_write(13, true);
+	let v = gpio.digital_read(13);
+	let a = gpio.analog_read(0);
+	gpio.analog_write(9, 128);
+
+	let uh = uart.uart_init(1, 9600);
+	let wrote = uart.uart_write(uh, "hello");
+	let data = uart.uart_read(uh, 64);
+	let avail = uart.uart_available(uh);
+
+	let sh = spi.spi_init(0, 1000000);
+	let resp = spi.spi_transfer(sh, "ab");
+	let sw = spi.spi_write(sh, "cd");
+	let sr = spi.spi_read(sh, 4);
+
+	let ih = i2c.i2c_init(1, 80);
+	let iw = i2c.i2c_write(ih, "ef");
+	let ir = i2c.i2c_read(ih, 2);
+
+	let th = timer.timer_init(0, 72);
+	timer.timer_start(th);
+	timer.timer_stop(th);
+	let cnt = timer.timer_get_count(th);
+	timer.delay_ms(100);
+	timer.delay_us(50);
+}
+`
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	checker := types.NewChecker()
+	if !checker.Check(program) {
+		t.Fatalf("type errors: %v", checker.Errors())
+	}
+
+	gen := NewCGenerator()
+	gen.SetTypeInfo(checker.TypeInfo())
+	output := gen.Generate(program)
+
+	compileGeneratedC(t, output)
 }
 
 func TestMapPrintGeneratesCarv_print_map(t *testing.T) {
