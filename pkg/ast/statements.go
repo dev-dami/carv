@@ -9,6 +9,7 @@ type LetStatement struct {
 	Value   Expression
 	Mutable bool
 	Public  bool
+	Static  bool
 }
 
 func (ls *LetStatement) statementNode()       {}
@@ -21,6 +22,7 @@ type ConstStatement struct {
 	Type   TypeExpr
 	Value  Expression
 	Public bool
+	Static bool
 }
 
 func (cs *ConstStatement) statementNode()       {}
@@ -134,6 +136,7 @@ type ClassStatement struct {
 	Methods    []*MethodDecl
 	Implements []*Identifier
 	Public     bool
+	Packed     bool
 }
 
 func (cs *ClassStatement) statementNode()       {}
