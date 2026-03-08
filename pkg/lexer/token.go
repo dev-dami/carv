@@ -69,10 +69,6 @@ const (
 	TOKEN_ARROW     // ->
 	TOKEN_FAT_ARROW // =>
 
-	// Pipes (core to Carv)
-	TOKEN_PIPE      // |>
-	TOKEN_PIPE_BACK // <|
-
 	// Concurrency
 	TOKEN_LARROW // <-
 	TOKEN_RARROW // ->  (reused for channel send)
@@ -134,6 +130,24 @@ const (
 	TOKEN_CHAR_TYPE   // char
 	TOKEN_VOID_TYPE   // void
 	TOKEN_ANY_TYPE    // any
+
+	// Sized integer types
+	TOKEN_U8_TYPE    // u8
+	TOKEN_U16_TYPE   // u16
+	TOKEN_U32_TYPE   // u32
+	TOKEN_U64_TYPE   // u64
+	TOKEN_I8_TYPE    // i8
+	TOKEN_I16_TYPE   // i16
+	TOKEN_I32_TYPE   // i32
+	TOKEN_I64_TYPE   // i64
+	TOKEN_F32_TYPE   // f32
+	TOKEN_F64_TYPE   // f64
+	TOKEN_USIZE_TYPE // usize
+	TOKEN_ISIZE_TYPE // isize
+
+	// Embedded keywords
+	TOKEN_VOLATILE // volatile
+	TOKEN_PACKED   // packed
 )
 
 var tokenNames = map[TokenType]string{
@@ -195,9 +209,6 @@ var tokenNames = map[TokenType]string{
 	TOKEN_ARROW:     "->",
 	TOKEN_FAT_ARROW: "=>",
 
-	TOKEN_PIPE:      "|>",
-	TOKEN_PIPE_BACK: "<|",
-
 	TOKEN_LARROW: "<-",
 
 	TOKEN_FN:        "fn",
@@ -251,6 +262,22 @@ var tokenNames = map[TokenType]string{
 	TOKEN_CHAR_TYPE:   "char",
 	TOKEN_VOID_TYPE:   "void",
 	TOKEN_ANY_TYPE:    "any",
+
+	TOKEN_U8_TYPE:    "u8",
+	TOKEN_U16_TYPE:   "u16",
+	TOKEN_U32_TYPE:   "u32",
+	TOKEN_U64_TYPE:   "u64",
+	TOKEN_I8_TYPE:    "i8",
+	TOKEN_I16_TYPE:   "i16",
+	TOKEN_I32_TYPE:   "i32",
+	TOKEN_I64_TYPE:   "i64",
+	TOKEN_F32_TYPE:   "f32",
+	TOKEN_F64_TYPE:   "f64",
+	TOKEN_USIZE_TYPE: "usize",
+	TOKEN_ISIZE_TYPE: "isize",
+
+	TOKEN_VOLATILE: "volatile",
+	TOKEN_PACKED:   "packed",
 }
 
 func (t TokenType) String() string {
@@ -311,6 +338,20 @@ var keywords = map[string]TokenType{
 	"char":      TOKEN_CHAR_TYPE,
 	"void":      TOKEN_VOID_TYPE,
 	"any":       TOKEN_ANY_TYPE,
+	"u8":        TOKEN_U8_TYPE,
+	"u16":       TOKEN_U16_TYPE,
+	"u32":       TOKEN_U32_TYPE,
+	"u64":       TOKEN_U64_TYPE,
+	"i8":        TOKEN_I8_TYPE,
+	"i16":       TOKEN_I16_TYPE,
+	"i32":       TOKEN_I32_TYPE,
+	"i64":       TOKEN_I64_TYPE,
+	"f32":       TOKEN_F32_TYPE,
+	"f64":       TOKEN_F64_TYPE,
+	"usize":     TOKEN_USIZE_TYPE,
+	"isize":     TOKEN_ISIZE_TYPE,
+	"volatile":  TOKEN_VOLATILE,
+	"packed":    TOKEN_PACKED,
 }
 
 func LookupIdent(ident string) TokenType {
@@ -332,5 +373,5 @@ func (t Token) Pos() string {
 }
 
 func (t Token) IsKeyword() bool {
-	return t.Type >= TOKEN_FN && t.Type <= TOKEN_ANY_TYPE
+	return t.Type >= TOKEN_FN && t.Type <= TOKEN_PACKED
 }
