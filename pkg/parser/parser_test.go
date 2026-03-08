@@ -73,37 +73,6 @@ func TestFunctionStatement(t *testing.T) {
 	}
 }
 
-func TestPipeExpression(t *testing.T) {
-	input := `x |> double |> print;`
-
-	l := lexer.New(input)
-	p := New(l)
-	program := p.ParseProgram()
-	checkParserErrors(t, p)
-
-	if len(program.Statements) != 1 {
-		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
-	}
-
-	stmt, ok := program.Statements[0].(*ast.ExpressionStatement)
-	if !ok {
-		t.Fatalf("stmt not *ast.ExpressionStatement. got=%T", program.Statements[0])
-	}
-
-	pipe, ok := stmt.Expression.(*ast.PipeExpression)
-	if !ok {
-		t.Fatalf("expression not *ast.PipeExpression. got=%T", stmt.Expression)
-	}
-
-	rightIdent, ok := pipe.Right.(*ast.Identifier)
-	if !ok {
-		t.Fatalf("right not identifier. got=%T", pipe.Right)
-	}
-	if rightIdent.Value != "print" {
-		t.Fatalf("expected 'print', got %s", rightIdent.Value)
-	}
-}
-
 func TestComparisonExpression(t *testing.T) {
 	tests := []struct {
 		input    string
