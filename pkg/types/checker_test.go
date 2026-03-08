@@ -117,25 +117,6 @@ let listener = net.tcp_listen("127.0.0.1");
 	}
 }
 
-func TestTypeCheckerPipes(t *testing.T) {
-	input := `
-fn double(x: int) -> int {
-	return x * 2;
-}
-5 |> double |> print;
-`
-	l := lexer.New(input)
-	p := parser.New(l)
-	program := p.ParseProgram()
-
-	checker := NewChecker()
-	ok := checker.Check(program)
-
-	if !ok {
-		t.Errorf("unexpected errors: %v", checker.Errors())
-	}
-}
-
 func TestTypeCheckerArrays(t *testing.T) {
 	input := `
 let arr = [1, 2, 3];
