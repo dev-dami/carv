@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,14 +8,13 @@ import (
 	"strings"
 
 	"github.com/dev-dami/carv/pkg/codegen"
-	"github.com/dev-dami/carv/pkg/eval"
 	"github.com/dev-dami/carv/pkg/lexer"
 	"github.com/dev-dami/carv/pkg/module"
 	"github.com/dev-dami/carv/pkg/parser"
 	"github.com/dev-dami/carv/pkg/types"
 )
 
-const version = "0.2.0"
+const version = "0.3.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -29,31 +27,33 @@ func main() {
 		fmt.Printf("carv %s\n", version)
 	case "help", "-h", "--help":
 		printUsage()
-	case "run":
-		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: carv run <file.carv>")
-			os.Exit(1)
-		}
-		runFile(os.Args[2], os.Args[3:])
 	case "build":
 		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: carv build <file.carv>")
+			fmt.Fprintln(os.Stderr, "usage: carv build [--target arm] <file.carv>")
 			os.Exit(1)
 		}
-		buildFile(os.Args[2])
+		target := ""
+		fileArg := os.Args[2]
+		if os.Args[2] == "--target" {
+			if len(os.Args) < 5 {
+				fmt.Fprintln(os.Stderr, "usage: carv build --target <arm|host> <file.carv>")
+				os.Exit(1)
+			}
+			target = os.Args[3]
+			fileArg = os.Args[4]
+		}
+		buildFile(fileArg, target)
 	case "emit-c":
 		if len(os.Args) < 3 {
 			fmt.Fprintln(os.Stderr, "usage: carv emit-c <file.carv>")
 			os.Exit(1)
 		}
 		emitC(os.Args[2])
-	case "repl":
-		runRepl()
 	case "init":
 		initProject()
 	default:
 		if strings.HasSuffix(os.Args[1], ".carv") {
-			runFile(os.Args[1], os.Args[2:])
+			buildFile(os.Args[1], "")
 		} else {
 			fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 			os.Exit(1)
@@ -62,26 +62,23 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println(`carv - a memory-safe, concurrent scripting language
+	fmt.Println(`carv - a memory-safe language for embedded systems
 
 Usage:
   carv <command> [arguments]
 
 Commands:
-  run <file>   Run a Carv source file (interpreted)
-  build <file> Compile to native binary via C
+  build <file>  Compile to native binary via C
   emit-c <file> Output generated C code
-  init         Initialize a new Carv project with carv.toml
-  repl         Start interactive REPL
-  version      Print version info
-  help         Show this help
+  init          Initialize a new Carv project with carv.toml
+  version       Print version info
+  help          Show this help
 
 Examples:
-  carv run hello.carv
   carv build hello.carv
+  carv emit-c hello.carv
   carv hello.carv
-  carv init
-  carv repl`)
+  carv init`)
 }
 
 func initProject() {
@@ -125,119 +122,8 @@ main();
 	fmt.Printf("Initialized Carv project '%s'\n", name)
 	fmt.Println("  Created carv.toml")
 	fmt.Println("  Created src/main.carv")
-	fmt.Println("\nRun your project with:")
-	fmt.Println("  carv run src/main.carv")
-}
-
-func runFile(filename string, programArgs []string) {
-	content, err := os.ReadFile(filename)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading file: %s\n", err)
-		os.Exit(1)
-	}
-
-	absPath, err := filepath.Abs(filename)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to resolve path: %s\n", err)
-		absPath = filename
-	}
-
-	projectRoot, err := module.FindProjectRoot(filepath.Dir(absPath))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to find project root: %s\n", err)
-		projectRoot = filepath.Dir(absPath)
-	}
-
-	cfg, err := module.LoadConfig(projectRoot)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to load carv.toml: %s\n", err)
-	}
-
-	loader := module.NewLoader(projectRoot)
-	if cfg != nil {
-		loader.SetConfig(cfg)
-	}
-
-	eval.SetModuleLoader(loader)
-	eval.SetCurrentFile(absPath)
-	eval.SetArgs(programArgs)
-
-	l := lexer.New(string(content))
-	p := parser.New(l)
-	program := p.ParseProgram()
-
-	if len(p.Errors()) > 0 {
-		for _, msg := range p.Errors() {
-			fmt.Fprintln(os.Stderr, msg)
-		}
-		os.Exit(1)
-	}
-
-	checker := types.NewChecker()
-	if !checker.Check(program) {
-		for _, msg := range checker.Errors() {
-			fmt.Fprintln(os.Stderr, msg)
-		}
-		os.Exit(1)
-	}
-
-	// Print ownership warnings (non-fatal for interpreter mode)
-	for _, msg := range checker.Warnings() {
-		fmt.Fprintln(os.Stderr, msg)
-	}
-
-	env := eval.NewEnvironment()
-	result := eval.Eval(program, env)
-
-	if result != nil {
-		if errObj, ok := result.(*eval.Error); ok {
-			fmt.Fprintln(os.Stderr, errObj.Inspect())
-			os.Exit(1)
-		}
-	}
-}
-
-func runRepl() {
-	scanner := bufio.NewScanner(os.Stdin)
-	env := eval.NewEnvironment()
-
-	fmt.Printf("Carv %s REPL\n", version)
-	fmt.Println("Type 'exit' or Ctrl+D to quit")
-
-	for {
-		fmt.Print(">>> ")
-		if !scanner.Scan() {
-			break
-		}
-
-		line := scanner.Text()
-		if line == "exit" || line == "quit" {
-			break
-		}
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-
-		l := lexer.New(line)
-		p := parser.New(l)
-		program := p.ParseProgram()
-
-		if len(p.Errors()) > 0 {
-			for _, msg := range p.Errors() {
-				fmt.Fprintln(os.Stderr, msg)
-			}
-			continue
-		}
-
-		result := eval.Eval(program, env)
-		if result != nil {
-			if result.Type() != eval.NIL_OBJ {
-				fmt.Println(result.Inspect())
-			}
-		}
-	}
-
-	fmt.Println("\nGoodbye!")
+	fmt.Println("\nBuild your project with:")
+	fmt.Println("  carv build src/main.carv")
 }
 
 func emitC(filename string) {
@@ -279,7 +165,7 @@ func emitC(filename string) {
 	fmt.Print(cCode)
 }
 
-func buildFile(filename string) {
+func buildFile(filename string, target string) {
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error reading file: %s\n", err)
@@ -327,10 +213,22 @@ func buildFile(filename string) {
 
 	fmt.Printf("Generated %s\n", cFile)
 
-	cmd := fmt.Sprintf("gcc -O2 -o %s %s", outFile, cFile)
-	fmt.Printf("Compiling: %s\n", cmd)
+	var compiler string
+	var flags []string
 
-	if err := runCmd("gcc", "-O2", "-o", outFile, cFile); err != nil {
+	switch target {
+	case "arm":
+		compiler = "arm-none-eabi-gcc"
+		outFile += ".elf"
+		flags = []string{"-mcpu=cortex-m4", "-mthumb", "-Os", "-ffreestanding", "-nostdlib", "-o", outFile, cFile}
+	default:
+		compiler = "gcc"
+		flags = []string{"-O2", "-o", outFile, cFile}
+	}
+
+	fmt.Printf("Compiling: %s %s\n", compiler, strings.Join(flags, " "))
+
+	if err := runCmd(compiler, flags...); err != nil {
 		fmt.Fprintf(os.Stderr, "compilation failed: %s\n", err)
 		os.Exit(1)
 	}
