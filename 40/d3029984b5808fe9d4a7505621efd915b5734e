@@ -1,0 +1,36 @@
+pkg/codegen/cgen.go
+  b24c765ec37d0aad 128-151,153-154,495-496,1462-1464,1466,1619-1623,1631-1635,2390-2413,2434-2435
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "40d3029984b5808fe9d4a7505621efd915b5734e",
+  "prompts": {
+    "37d15d5bbda6cc83": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c95d6-331e-7b32-a70d-b3eef180c19c",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    },
+    "b24c765ec37d0aad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2825a173-d764-4520-86c1-edf309d6b0f3",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 772,
+      "overriden_lines": 0
+    }
+  }
+}
