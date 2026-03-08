@@ -125,6 +125,33 @@ func checkerTypeToCString(t types.Type) string {
 		return "void"
 	case t.Equals(types.Nil):
 		return "void*"
+	case t.Equals(types.U8):
+		return "uint8_t"
+	case t.Equals(types.U16):
+		return "uint16_t"
+	case t.Equals(types.U32):
+		return "uint32_t"
+	case t.Equals(types.U64):
+		return "uint64_t"
+	case t.Equals(types.I8):
+		return "int8_t"
+	case t.Equals(types.I16):
+		return "int16_t"
+	case t.Equals(types.I32):
+		return "int32_t"
+	case t.Equals(types.I64):
+		return "int64_t"
+	case t.Equals(types.F32):
+		return "float"
+	case t.Equals(types.F64):
+		return "double"
+	case t.Equals(types.Usize):
+		return "size_t"
+	case t.Equals(types.Isize):
+		return "ptrdiff_t"
+	}
+	if vol, ok := t.(*types.VolatileType); ok {
+		return "volatile " + checkerTypeToCString(vol.Inner)
 	}
 	if arr, ok := t.(*types.ArrayType); ok {
 		elem := checkerTypeToCString(arr.Element)
@@ -465,6 +492,8 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("#include <stdio.h>")
 	g.writeln("#include <stdlib.h>")
 	g.writeln("#include <string.h>")
+	g.writeln("#include <stdint.h>")
+	g.writeln("#include <stddef.h>")
 	g.writeln("#include <stdbool.h>")
 	g.writeln("#include <unistd.h>")
 	g.writeln("#include <sys/types.h>")
@@ -1281,9 +1310,6 @@ func (g *CGenerator) walkForCaptures(node ast.Node, params map[string]bool, seen
 		g.walkForCaptures(n.Condition, params, seen, captures)
 		g.walkForCaptures(n.Consequence, params, seen, captures)
 		g.walkForCaptures(n.Alternative, params, seen, captures)
-	case *ast.PipeExpression:
-		g.walkForCaptures(n.Left, params, seen, captures)
-		g.walkForCaptures(n.Right, params, seen, captures)
 	case *ast.ArrayLiteral:
 		for _, elem := range n.Elements {
 			g.walkForCaptures(elem, params, seen, captures)
@@ -1433,7 +1459,11 @@ func (g *CGenerator) generateClassDecl(cls *ast.ClassStatement) {
 	}
 
 	g.indent--
-	g.writeln("};")
+	if cls.Packed {
+		g.writeln("} __attribute__((packed));")
+	} else {
+		g.writeln("};")
+	}
 	g.writeln("")
 
 	g.writeln(fmt.Sprintf("%s* %s_new(void) {", className, className))
@@ -1586,7 +1616,11 @@ func (g *CGenerator) generateLetStatement(s *ast.LetStatement) {
 		g.declareVar(varName+"_result_err", errType, false, false)
 	}
 
-	g.writeln(fmt.Sprintf("%s %s = %s;", varType, varName, value))
+	prefix := ""
+	if s.Static {
+		prefix = "static "
+	}
+	g.writeln(fmt.Sprintf("%s%s %s = %s;", prefix, varType, varName, value))
 }
 
 func (g *CGenerator) generateConstStatement(s *ast.ConstStatement) {
@@ -1594,7 +1628,11 @@ func (g *CGenerator) generateConstStatement(s *ast.ConstStatement) {
 	varName := s.Name.Value
 	value := g.generateExpression(s.Value)
 	g.flushPreamble()
-	g.writeln(fmt.Sprintf("const %s %s = %s;", varType, varName, value))
+	prefix := ""
+	if s.Static {
+		prefix = "static "
+	}
+	g.writeln(fmt.Sprintf("%sconst %s %s = %s;", prefix, varType, varName, value))
 }
 
 func (g *CGenerator) generateReturnStatement(s *ast.ReturnStatement) {
@@ -1775,8 +1813,6 @@ func (g *CGenerator) generateExpression(expr ast.Expression) string {
 		return g.generatePrefixExpression(e)
 	case *ast.InfixExpression:
 		return g.generateInfixExpression(e)
-	case *ast.PipeExpression:
-		return g.generatePipeExpression(e)
 	case *ast.AssignExpression:
 		return g.generateAssignExpression(e)
 	case *ast.CallExpression:
@@ -1829,50 +1865,6 @@ func (g *CGenerator) generateInfixExpression(e *ast.InfixExpression) string {
 		}
 	}
 	return fmt.Sprintf("(%s %s %s)", left, e.Operator, right)
-}
-
-func (g *CGenerator) generatePipeExpression(e *ast.PipeExpression) string {
-	left := g.generateExpression(e.Left)
-	leftType := g.resolveType(e.Left)
-
-	switch right := e.Right.(type) {
-	case *ast.Identifier:
-		fnName := g.safeName(right.Value)
-		if fnName == "print" || fnName == "println" {
-			return g.generatePrintExpr(left, leftType)
-		}
-		if varType := g.getVarType(right.Value); strings.HasPrefix(varType, "__closure_") {
-			return fmt.Sprintf("%s.fn_ptr(%s.env, %s)", fnName, fnName, left)
-		}
-		return fmt.Sprintf("%s(%s)", fnName, left)
-	case *ast.CallExpression:
-		if ident, ok := right.Function.(*ast.Identifier); ok {
-			fnName := g.safeName(ident.Value)
-			if fnName == "print" || fnName == "println" {
-				return g.generatePrintExpr(left, leftType)
-			}
-			if varType := g.getVarType(ident.Value); strings.HasPrefix(varType, "__closure_") {
-				args := []string{fnName + ".env", left}
-				for _, arg := range right.Arguments {
-					args = append(args, g.generateExpression(arg))
-				}
-				return fmt.Sprintf("%s.fn_ptr(%s)", fnName, strings.Join(args, ", "))
-			}
-			args := []string{left}
-			for _, arg := range right.Arguments {
-				args = append(args, g.generateExpression(arg))
-			}
-			return fmt.Sprintf("%s(%s)", fnName, strings.Join(args, ", "))
-		}
-		fn := g.generateExpression(right.Function)
-		args := []string{left}
-		for _, arg := range right.Arguments {
-			args = append(args, g.generateExpression(arg))
-		}
-		return fmt.Sprintf("%s(%s)", fn, strings.Join(args, ", "))
-	default:
-		return left
-	}
 }
 
 func (g *CGenerator) generatePrintExpr(val string, valType string) string {
@@ -2395,6 +2387,30 @@ func (g *CGenerator) typeToC(typeExpr ast.TypeExpr) string {
 			return "carv_string"
 		case "void":
 			return "void"
+		case "u8":
+			return "uint8_t"
+		case "u16":
+			return "uint16_t"
+		case "u32":
+			return "uint32_t"
+		case "u64":
+			return "uint64_t"
+		case "i8":
+			return "int8_t"
+		case "i16":
+			return "int16_t"
+		case "i32":
+			return "int32_t"
+		case "i64":
+			return "int64_t"
+		case "f32":
+			return "float"
+		case "f64":
+			return "double"
+		case "usize":
+			return "size_t"
+		case "isize":
+			return "ptrdiff_t"
 		}
 	case *ast.RefType:
 		if named, ok := t.Inner.(*ast.NamedType); ok {
@@ -2415,6 +2431,8 @@ func (g *CGenerator) typeToC(typeExpr ast.TypeExpr) string {
 			return t.Name.Value + "_ref"
 		}
 		return t.Name.Value + "*"
+	case *ast.VolatileType:
+		return "volatile " + g.typeToC(t.Inner)
 	}
 	return "void"
 }
