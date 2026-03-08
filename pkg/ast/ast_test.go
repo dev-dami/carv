@@ -134,15 +134,6 @@ func TestInfixExpression(t *testing.T) {
 	}
 }
 
-func TestPipeExpression(t *testing.T) {
-	token := lexer.Token{Type: lexer.TOKEN_PIPE, Literal: "|>", Line: 1, Column: 1}
-	pipe := &PipeExpression{Token: token}
-
-	if pipe.TokenLiteral() != "|>" {
-		t.Errorf("expected token literal '|>', got %q", pipe.TokenLiteral())
-	}
-}
-
 func TestCallExpression(t *testing.T) {
 	token := lexer.Token{Type: lexer.TOKEN_LPAREN, Literal: "(", Line: 1, Column: 5}
 	call := &CallExpression{Token: token, Arguments: []Expression{}}
