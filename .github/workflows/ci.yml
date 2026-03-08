@@ -64,10 +64,10 @@ jobs:
       - name: Build
         run: make build
 
-      - name: Run docs samples
+      - name: Build docs samples
         run: |
-          ./build/carv run docs/samples/hello.carv
-          ./build/carv run docs/samples/showcase.carv
+          ./build/carv build docs/samples/hello.carv
+          ./build/carv build docs/samples/showcase.carv
 
   build-release:
     name: Build Release Binaries
