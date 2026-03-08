@@ -1,0 +1,33 @@
+pkg/parser/parser_test.go
+  b24c765ec37d0aad 978-2846
+pkg/codegen/cgen_test.go
+  b24c765ec37d0aad 10,1335-2455
+pkg/module/module_test.go
+  b24c765ec37d0aad 355-1083
+pkg/ast/ast_test.go
+  b24c765ec37d0aad 9-16,25,27-29,34,40,42-45,49-51,55-57,61-64,66-69,73-75,79-81,85-87,91-93,96-99,103-105,109-111,115-118,120-123,126-129,132-135,139-141,145-147,151-153,156-159,162-166,168-171,174-178,180-197,199-201,205-207,211-213,216-219,222-225,228-231,234,236-239,242-246,248-252,254-258,260-447,450-454,456-457,459-460,462-463,465-526,528-538,540-547,549-551,553,555-560,562-564
+pkg/types/checker_test.go
+  b24c765ec37d0aad 818-1835
+pkg/lexer/lexer_test.go
+  b24c765ec37d0aad 3-4,6,216-496
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "e8d89348cc1900fa702746caae5063e0dd822368",
+  "prompts": {
+    "b24c765ec37d0aad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2825a173-d764-4520-86c1-edf309d6b0f3",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 5545,
+      "total_deletions": 225,
+      "accepted_lines": 5490,
+      "overriden_lines": 0
+    }
+  }
+}
