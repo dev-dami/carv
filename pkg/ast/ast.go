@@ -150,16 +150,6 @@ func (ie *InfixExpression) expressionNode()      {}
 func (ie *InfixExpression) TokenLiteral() string { return ie.Token.Literal }
 func (ie *InfixExpression) Pos() (int, int)      { return ie.Token.Line, ie.Token.Column }
 
-type PipeExpression struct {
-	Token lexer.Token
-	Left  Expression
-	Right Expression
-}
-
-func (pe *PipeExpression) expressionNode()      {}
-func (pe *PipeExpression) TokenLiteral() string { return pe.Token.Literal }
-func (pe *PipeExpression) Pos() (int, int)      { return pe.Token.Line, pe.Token.Column }
-
 type CallExpression struct {
 	Token     lexer.Token
 	Function  Expression
