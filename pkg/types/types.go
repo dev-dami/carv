@@ -178,11 +178,31 @@ var (
 	Void   = &BasicType{Name: "void"}
 	Any    = &BasicType{Name: "any"}
 	Nil    = &BasicType{Name: "nil"}
+
+	// Sized integer types
+	U8    = &BasicType{Name: "u8"}
+	U16   = &BasicType{Name: "u16"}
+	U32   = &BasicType{Name: "u32"}
+	U64   = &BasicType{Name: "u64"}
+	I8    = &BasicType{Name: "i8"}
+	I16   = &BasicType{Name: "i16"}
+	I32   = &BasicType{Name: "i32"}
+	I64   = &BasicType{Name: "i64"}
+	F32   = &BasicType{Name: "f32"}
+	F64   = &BasicType{Name: "f64"}
+	Usize = &BasicType{Name: "usize"}
+	Isize = &BasicType{Name: "isize"}
 )
 
 func IsNumeric(t Type) bool {
 	if b, ok := t.(*BasicType); ok {
-		return b.Name == "int" || b.Name == "float"
+		switch b.Name {
+		case "int", "float",
+			"u8", "u16", "u32", "u64",
+			"i8", "i16", "i32", "i64",
+			"f32", "f64", "usize", "isize":
+			return true
+		}
 	}
 	return false
 }
@@ -190,9 +210,24 @@ func IsNumeric(t Type) bool {
 func IsComparable(t Type) bool {
 	if b, ok := t.(*BasicType); ok {
 		switch b.Name {
-		case "int", "float", "string", "char", "bool":
+		case "int", "float", "string", "char", "bool",
+			"u8", "u16", "u32", "u64",
+			"i8", "i16", "i32", "i64",
+			"f32", "f64", "usize", "isize":
 			return true
 		}
+	}
+	return false
+}
+
+type VolatileType struct {
+	Inner Type
+}
+
+func (v *VolatileType) String() string { return "volatile<" + v.Inner.String() + ">" }
+func (v *VolatileType) Equals(other Type) bool {
+	if o, ok := other.(*VolatileType); ok {
+		return v.Inner.Equals(o.Inner)
 	}
 	return false
 }
@@ -212,6 +247,12 @@ func Category(t Type) TypeCategory {
 	}
 	switch {
 	case t.Equals(Int), t.Equals(Float), t.Equals(Bool), t.Equals(Char), t.Equals(Void), t.Equals(Nil):
+		return CopyType
+	case t.Equals(U8), t.Equals(U16), t.Equals(U32), t.Equals(U64):
+		return CopyType
+	case t.Equals(I8), t.Equals(I16), t.Equals(I32), t.Equals(I64):
+		return CopyType
+	case t.Equals(F32), t.Equals(F64), t.Equals(Usize), t.Equals(Isize):
 		return CopyType
 	case t.Equals(String):
 		return MoveType
