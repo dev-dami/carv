@@ -1,6 +1,5 @@
 let name = "Carv";
-let version = "0.4.0";
-println(f"Welcome to {name} v{version}!");
+println("Welcome to Carv!");
 
 class Point {
     x: int = 0
@@ -10,25 +9,16 @@ class Point {
 let point = new Point;
 point.x = 10;
 point.y = 20;
-println(f"point: ({point.x}, {point.y})");
+println("point created");
 
-fn divide(a: int, b: int) {
-    if b == 0 {
-        return Err("division by zero");
-    }
-    return Ok(a / b);
+fn add(a: int, b: int) -> int {
+    return a + b;
 }
 
-let result = divide(10, 2);
-match result {
-    Ok(v) => println(f"10 / 2 = {v}"),
-    Err(e) => println(f"error: {e}"),
-};
-
-let scores = {"alice": 95, "bob": 87, "charlie": 92};
-println(f"scores: {scores}");
+let sum = add(point.x, point.y);
+println("sum:", sum);
 
 let numbers = [1, 2, 3, 4, 5];
 for n in numbers {
-    println(f"n = {n}");
+    println("n =", n);
 }

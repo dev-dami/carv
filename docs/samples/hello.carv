@@ -11,8 +11,8 @@ print("Hello, Carv!");
 let x = 10;
 let y = 20;
 
-x |> double |> print;
-x |> double |> add(5) |> print;
+print(double(x));
+print(add(double(x), 5));
 
 if x < y {
     print("x is less than y");
