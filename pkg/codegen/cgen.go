@@ -1867,20 +1867,6 @@ func (g *CGenerator) generateInfixExpression(e *ast.InfixExpression) string {
 	return fmt.Sprintf("(%s %s %s)", left, e.Operator, right)
 }
 
-func (g *CGenerator) generatePrintExpr(val string, valType string) string {
-	switch valType {
-	case "carv_int":
-		return fmt.Sprintf("(printf(\"%%lld\\n\", %s))", val)
-	case "carv_float":
-		return fmt.Sprintf("(printf(\"%%g\\n\", %s))", val)
-	case "carv_bool":
-		return fmt.Sprintf("(printf(\"%%s\\n\", %s ? \"true\" : \"false\"))", val)
-	case "carv_string":
-		return fmt.Sprintf("(printf(\"%%s\\n\", %s.data))", val)
-	default:
-		return fmt.Sprintf("(printf(\"%%lld\\n\", (carv_int)%s))", val)
-	}
-}
 
 func (g *CGenerator) generateAssignExpression(e *ast.AssignExpression) string {
 	left := g.generateExpression(e.Left)
