@@ -9,7 +9,7 @@ fn add(a: int, b: int) -> int {
 	return a + b
 }
 
-x |> add(y) |> print
+add(x, y)
 
 if x == 10 {
 	spawn { print("concurrent") }
@@ -56,14 +56,12 @@ interface Drawable {
 		{TOKEN_PLUS, "+"},
 		{TOKEN_IDENT, "b"},
 		{TOKEN_RBRACE, "}"},
-		{TOKEN_IDENT, "x"},
-		{TOKEN_PIPE, "|>"},
 		{TOKEN_IDENT, "add"},
 		{TOKEN_LPAREN, "("},
+		{TOKEN_IDENT, "x"},
+		{TOKEN_COMMA, ","},
 		{TOKEN_IDENT, "y"},
 		{TOKEN_RPAREN, ")"},
-		{TOKEN_PIPE, "|>"},
-		{TOKEN_IDENT, "print"},
 		{TOKEN_IF, "if"},
 		{TOKEN_IDENT, "x"},
 		{TOKEN_EQ, "=="},
@@ -122,7 +120,7 @@ func TestOperators(t *testing.T) {
 	input := `+ - * / % ^ & | ~ ! ?
 == != < <= > >= && ||
 = += -= *= /= %= &= |= ^=
--> => |> <| <-`
+-> => <-`
 
 	tests := []struct {
 		expectedType    TokenType
@@ -158,8 +156,6 @@ func TestOperators(t *testing.T) {
 		{TOKEN_CARET_EQ, "^="},
 		{TOKEN_ARROW, "->"},
 		{TOKEN_FAT_ARROW, "=>"},
-		{TOKEN_PIPE, "|>"},
-		{TOKEN_PIPE_BACK, "<|"},
 		{TOKEN_LARROW, "<-"},
 		{TOKEN_EOF, ""},
 	}
