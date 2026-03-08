@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>A statically-typed language that compiles to C</strong>
+  <strong>A memory-safe language for embedded systems that compiles to C</strong>
 </p>
 
 <p align="center">
@@ -18,122 +18,111 @@
 
 # Carv
 
-An ambitious little programming language I've been tinkering with.
+A programming language designed for embedded systems (ARM Cortex-M0 through M7). Compiles to C, runs natively on bare metal.
 
 ---
 
 ## The Story
 
-This project has been a long time coming. Back in September last year, I started working on something called **dyms** (Dynamic Yet Minimal Script) - first in Go, then rewrote it in Rust, then... i gave up. Life happened, motivation faded, School, yk the usual.
+This started as a hobby project called **dyms** back in September. After a few rewrites between Go and Rust, it became **Carv** — a language that compiles to C with the goal of being safe, small, and suitable for microcontrollers.
 
-Fast forward to now right now and i'm back at it. Ported what I had to Go, cleaned things up, and renamed it Carv. The goal is still the same: build a language that compiles to C, eventually make it self-hosted (write the Carv compiler in Carv itself).
-
-We'll see how far I get this time.
+The focus is now squarely on **embedded systems**: sized integer types, volatile memory access, packed structs for register maps, and cross-compilation to ARM targets.
 
 ---
 
 ## What It Does
 
-Carv compiles to C and runs natively. It has a tree-walking interpreter too for quick testing.
+Carv compiles to C and targets embedded hardware (ARM Cortex-M series). No interpreter, no runtime — just clean C output that works with `gcc` or `arm-none-eabi-gcc`.
 
 Features that actually work:
+- **Sized integer types** (`u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`, `usize`, `isize`)
+- **`volatile<T>`** for memory-mapped I/O
+- **`packed` classes** for register maps (`__attribute__((packed))`)
+- **`static` variables** for BSS/data section placement
+- **ARM cross-compilation** (`carv build --target arm`)
 - Static typing with inference
-- Pipe operator (`|>`) - my favorite part
+- Method chaining with `.`
 - `let` / `mut` / `const` with proper immutability enforcement
 - Compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`)
 - Classes with methods
 - Result types (`Ok`/`Err`) with pattern matching
-- Hash maps
 - `for-in` loops over arrays, strings, and maps
-- **Closures** - first-class functions with environment capture
-- **Module system** with `require` (Rust-inspired, package manager ready)
-- **String interpolation** with `f"hello {name}"`
-- **Ownership system** (move semantics)
-- **Borrowing** (`&T` / `&mut T`)
-- **Interfaces** (`interface` / `impl` with vtable-based dynamic dispatch)
-- **Async/await** (compiles to state machines)
-- **Built-in `net`/`web` modules** for native TCP (`tcp_listen`, `tcp_accept`, `tcp_read`, `tcp_write`, `tcp_close`)
-- Project config via `carv.toml`
-- 40+ built-in functions (strings, files, process, environment, etc.)
+- Closures with environment capture
+- Module system with `require`
+- String interpolation with `f"hello {name}"`
+- Ownership system (move semantics)
+- Borrowing (`&T` / `&mut T`)
+- Interfaces (`interface` / `impl` with vtable-based dispatch)
+- Async/await (compiles to state machines)
+- 40+ built-in functions
 
 ---
 
 ## Quick Look
 
 ```carv
-// string interpolation
-let name = "World";
-println(f"Hello, {name}!");
-println(f"2 + 2 = {2 + 2}");
+// sized types for embedded
+let counter: u32 = 0;
+let flags: u8 = 0xFF;
+let temperature: f32 = 23.5;
 
-// pipes make everything nicer
-10 |> double |> add(5) |> print;
+// volatile for hardware registers
+let status: volatile<u32> = 0;
+
+// packed struct for register maps
+packed class GPIO_Regs {
+    moder:   u32 = 0
+    otyper:  u32 = 0
+    ospeedr: u32 = 0
+    pupdr:   u32 = 0
+    idr:     u32 = 0
+    odr:     u32 = 0
+}
+
+// static variables
+static let buffer: [64]u8 = [0; 64];
+
+// method chaining
+let result = sensor.read().calibrate().to_celsius();
 
 // ownership: move semantics
 let s = "hello";
 let t = s;              // s is moved, now invalid
 
-// borrowing: safe references
-fn print_len(s: &string) -> int {
-    return len(s);
-}
-let msg = "world";
-print_len(&msg);        // immutable borrow
-
 // error handling without exceptions
-fn divide(a: int, b: int) {
+fn divide(a: i32, b: i32) {
     if b == 0 {
-        return Err("nope");
+        return Err("division by zero");
     }
     return Ok(a / b);
 }
 
 let x = divide(10, 2)?;
 
-// hash maps
-let scores = {"alice": 100, "bob": 85};
-
 // classes
 class Point {
-    x: int = 0
-    y: int = 0
+    x: i32 = 0
+    y: i32 = 0
 }
 
 // closures
 let multiplier = 3;
-let triple = fn(x: int) -> int {
+let triple = fn(x: i32) -> i32 {
     return x * multiplier;
 };
-println(f"triple(5) = {triple(5)}");
-
-// async/await
-async fn fetch_data() -> int {
-    return 42;
-}
-
-async fn carv_main() -> int {
-    let value = await fetch_data();
-    println(value);
-    return 0;
-}
 ```
 
 ### Modules
 
 ```carv
 // math.carv
-pub fn add(a: int, b: int) -> int {
+pub fn add(a: i32, b: i32) -> i32 {
     return a + b;
 }
 
 // main.carv
 require { add } from "./math";
 println(f"1 + 2 = {add(1, 2)}");
-
-// builtin module
-require "net" as net;
-let listener = net.tcp_listen("127.0.0.1", 8080);
-net.tcp_close(listener);
 ```
 
 ---
@@ -148,14 +137,13 @@ make build
 
 Then:
 ```bash
-./build/carv run file.carv      # interpret
-./build/carv build file.carv    # compile to binary
-./build/carv emit-c file.carv   # emit generated C source
-./build/carv init               # create new project with carv.toml
-./build/carv repl               # mess around
+./build/carv build file.carv               # compile to binary (host)
+./build/carv build --target arm file.carv   # compile for ARM Cortex-M
+./build/carv emit-c file.carv              # emit generated C source
+./build/carv init                          # create new project with carv.toml
 ```
 
-For async programs compiled with `carv build`, use `async fn carv_main() -> int` as the async entrypoint.
+For ARM targets, you need `arm-none-eabi-gcc` installed.
 
 ---
 
@@ -163,12 +151,18 @@ For async programs compiled with `carv build`, use `async fn carv_main() -> int`
 
 ### Core Language
 - [x] Lexer, parser, type checker
-- [x] Tree-walking interpreter
-- [x] C code generation
+- [x] C code generation (AOT only)
 - [x] Static typing with inference
 
+### Embedded Features
+- [x] Sized integer types (`u8`-`u64`, `i8`-`i64`, `f32`, `f64`, `usize`, `isize`)
+- [x] `volatile<T>` for memory-mapped I/O
+- [x] `packed` classes for register maps
+- [x] `static` variable declarations
+- [x] ARM cross-compilation (`--target arm`)
+
 ### Data Types & Structures
-- [x] Primitives (int, float, string, bool, char)
+- [x] Primitives (int, float, string, bool, char + all sized variants)
 - [x] Arrays and hash maps
 - [x] Result types (`Ok`/`Err`) with pattern matching
 - [x] Classes with methods
@@ -182,20 +176,19 @@ For async programs compiled with `carv build`, use `async fn carv_main() -> int`
 ### Functional Features
 - [x] First-class functions
 - [x] Closures with capture
-- [x] Pipe operator (`|>`)
+- [x] Method chaining (`.`)
 - [x] Higher-order functions
 
 ### Advanced Features
 - [x] Interfaces (`interface`/`impl` with vtables)
 - [x] Module system (`require`)
-- [x] Built-in `net`/`web` modules
 - [x] String interpolation (`f"..."`)
-- [x] Async/await (state-machine codegen + runtime bootstrap)
+- [x] Async/await (state-machine codegen)
 
 ### Tooling
 - [x] Project config (`carv.toml`)
-- [x] REPL
 - [x] Build scripts
+- [ ] HAL modules (GPIO, UART, SPI, I2C, Timers)
 - [ ] Package manager
 - [ ] Self-hosting
 - [ ] LSP / Editor support
@@ -219,4 +212,4 @@ MIT
 
 ---
 
-*This is a hobby project. I work on it when I have the energy. No promises, no timelines.*
+*Built for blinking LEDs, reading sensors, and writing to registers — without the footguns of raw C.*
