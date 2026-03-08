@@ -1867,7 +1867,6 @@ func (g *CGenerator) generateInfixExpression(e *ast.InfixExpression) string {
 	return fmt.Sprintf("(%s %s %s)", left, e.Operator, right)
 }
 
-
 func (g *CGenerator) generateAssignExpression(e *ast.AssignExpression) string {
 	left := g.generateExpression(e.Left)
 	right := g.generateExpression(e.Right)
