@@ -454,8 +454,6 @@ func (c *Checker) checkExpression(expr ast.Expression) Type {
 		t = c.checkPrefixExpression(e)
 	case *ast.InfixExpression:
 		t = c.checkInfixExpression(e)
-	case *ast.PipeExpression:
-		t = c.checkPipeExpression(e)
 	case *ast.AssignExpression:
 		t = c.checkAssignExpression(e)
 	case *ast.CallExpression:
@@ -574,39 +572,6 @@ func (c *Checker) checkInfixExpression(e *ast.InfixExpression) Type {
 	}
 
 	return Any
-}
-
-func (c *Checker) checkPipeExpression(e *ast.PipeExpression) Type {
-	leftType := c.checkExpression(e.Left)
-
-	switch right := e.Right.(type) {
-	case *ast.Identifier:
-		fnType, ok := c.scope.Lookup(right.Value)
-		if !ok {
-			line, col := right.Pos()
-			c.error(line, col, "undefined: %s", right.Value)
-			return Any
-		}
-		if ft, ok := fnType.(*FunctionType); ok {
-			return ft.Return
-		}
-		return Any
-
-	case *ast.CallExpression:
-		fnType := c.checkExpression(right.Function)
-		if ft, ok := fnType.(*FunctionType); ok {
-			if len(ft.Params) > 0 && !c.isAssignable(ft.Params[0], leftType) {
-				line, col := e.Pos()
-				c.error(line, col, "pipe: cannot pass %s to function expecting %s",
-					leftType.String(), ft.Params[0].String())
-			}
-			return ft.Return
-		}
-		return Any
-
-	default:
-		return c.checkExpression(e.Right)
-	}
 }
 
 func (c *Checker) checkAssignExpression(e *ast.AssignExpression) Type {
@@ -870,6 +835,30 @@ func (c *Checker) resolveTypeExpr(typeExpr ast.TypeExpr) Type {
 			return Void
 		case "any":
 			return Any
+		case "u8":
+			return U8
+		case "u16":
+			return U16
+		case "u32":
+			return U32
+		case "u64":
+			return U64
+		case "i8":
+			return I8
+		case "i16":
+			return I16
+		case "i32":
+			return I32
+		case "i64":
+			return I64
+		case "f32":
+			return F32
+		case "f64":
+			return F64
+		case "usize":
+			return Usize
+		case "isize":
+			return Isize
 		}
 	case *ast.ArrayType:
 		elemType := c.resolveTypeExpr(t.ElementType)
@@ -882,6 +871,9 @@ func (c *Checker) resolveTypeExpr(typeExpr ast.TypeExpr) Type {
 	case *ast.RefType:
 		inner := c.resolveTypeExpr(t.Inner)
 		return &RefType{Inner: inner, Mutable: t.Mutable}
+	case *ast.VolatileType:
+		inner := c.resolveTypeExpr(t.Inner)
+		return &VolatileType{Inner: inner}
 	}
 	return Any
 }
