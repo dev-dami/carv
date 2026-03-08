@@ -55,6 +55,18 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(lexer.TOKEN_BOOL_TYPE, p.parseTypeAsIdentifier)
 	p.registerPrefix(lexer.TOKEN_STRING_TYPE, p.parseTypeAsIdentifier)
 	p.registerPrefix(lexer.TOKEN_CHAR_TYPE, p.parseTypeAsIdentifier)
+	p.registerPrefix(lexer.TOKEN_U8_TYPE, p.parseTypeAsIdentifier)
+	p.registerPrefix(lexer.TOKEN_U16_TYPE, p.parseTypeAsIdentifier)
+	p.registerPrefix(lexer.TOKEN_U32_TYPE, p.parseTypeAsIdentifier)
+	p.registerPrefix(lexer.TOKEN_U64_TYPE, p.parseTypeAsIdentifier)
+	p.registerPrefix(lexer.TOKEN_I8_TYPE, p.parseTypeAsIdentifier)
+	p.registerPrefix(lexer.TOKEN_I16_TYPE, p.parseTypeAsIdentifier)
+	p.registerPrefix(lexer.TOKEN_I32_TYPE, p.parseTypeAsIdentifier)
+	p.registerPrefix(lexer.TOKEN_I64_TYPE, p.parseTypeAsIdentifier)
+	p.registerPrefix(lexer.TOKEN_F32_TYPE, p.parseTypeAsIdentifier)
+	p.registerPrefix(lexer.TOKEN_F64_TYPE, p.parseTypeAsIdentifier)
+	p.registerPrefix(lexer.TOKEN_USIZE_TYPE, p.parseTypeAsIdentifier)
+	p.registerPrefix(lexer.TOKEN_ISIZE_TYPE, p.parseTypeAsIdentifier)
 
 	p.infixParseFns = make(map[lexer.TokenType]infixParseFn)
 	p.registerInfix(lexer.TOKEN_PLUS, p.parseInfixExpression)
@@ -76,8 +88,6 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerInfix(lexer.TOKEN_LPAREN, p.parseCallExpression)
 	p.registerInfix(lexer.TOKEN_LBRACKET, p.parseIndexExpression)
 	p.registerInfix(lexer.TOKEN_DOT, p.parseMemberExpression)
-	p.registerInfix(lexer.TOKEN_PIPE, p.parsePipeExpression)
-	p.registerInfix(lexer.TOKEN_PIPE_BACK, p.parsePipeExpression)
 	p.registerInfix(lexer.TOKEN_ASSIGN, p.parseAssignExpression)
 	p.registerInfix(lexer.TOKEN_PLUS_EQ, p.parseAssignExpression)
 	p.registerInfix(lexer.TOKEN_MINUS_EQ, p.parseAssignExpression)
@@ -179,12 +189,45 @@ func (p *Parser) parseStatement() ast.Statement {
 			fnStmt.Async = true
 		}
 		stmt = fnStmt
+	case lexer.TOKEN_PACKED:
+		p.nextToken()
+		if p.curTokenIs(lexer.TOKEN_CLASS) {
+			classStmt := p.parseClassStatement()
+			if classStmt != nil {
+				classStmt.Packed = true
+			}
+			stmt = classStmt
+		} else {
+			p.errors = append(p.errors, fmt.Sprintf("line %d:%d: expected class after packed",
+				p.curToken.Line, p.curToken.Column))
+			return nil
+		}
 	case lexer.TOKEN_CLASS:
 		stmt = p.parseClassStatement()
 	case lexer.TOKEN_INTERFACE:
 		stmt = p.parseInterfaceStatement()
 	case lexer.TOKEN_IMPL:
 		stmt = p.parseImplStatement()
+	case lexer.TOKEN_STATIC:
+		p.nextToken()
+		switch p.curToken.Type {
+		case lexer.TOKEN_LET, lexer.TOKEN_MUT:
+			letStmt := p.parseLetStatement()
+			if letStmt != nil {
+				letStmt.Static = true
+			}
+			stmt = letStmt
+		case lexer.TOKEN_CONST:
+			constStmt := p.parseConstStatement()
+			if constStmt != nil {
+				constStmt.Static = true
+			}
+			stmt = constStmt
+		default:
+			p.errors = append(p.errors, fmt.Sprintf("line %d:%d: expected let, mut, or const after static",
+				p.curToken.Line, p.curToken.Column))
+			return nil
+		}
 	case lexer.TOKEN_FOR:
 		stmt = p.parseForStatement()
 	case lexer.TOKEN_WHILE:
