@@ -1,0 +1,35 @@
+pkg/module/builtin_modules.go
+  b24c765ec37d0aad 18-32
+pkg/codegen/cgen.go
+  b24c765ec37d0aad 877-952,2291-2307
+.gitignore
+  b24c765ec37d0aad 4
+pkg/types/checker.go
+  b24c765ec37d0aad 142-178
+cmd/carv/main.go
+  b24c765ec37d0aad 5-6,56-61,82-84,88-91,98-100,242,272-588
+pkg/module/lock.go
+  b24c765ec37d0aad 1-59
+pkg/codegen/cgen_test.go
+  b24c765ec37d0aad 12,1244-1324
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "038cf01238e2c6bbcde8df5937573db1c307509b",
+  "prompts": {
+    "b24c765ec37d0aad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2825a173-d764-4520-86c1-edf309d6b0f3",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 632,
+      "total_deletions": 9,
+      "accepted_lines": 624,
+      "overriden_lines": 0
+    }
+  }
+}
