@@ -89,3 +89,12 @@ type ResultType struct {
 func (rt *ResultType) typeExprNode()        {}
 func (rt *ResultType) TokenLiteral() string { return rt.Token.Literal }
 func (rt *ResultType) Pos() (int, int)      { return rt.Token.Line, rt.Token.Column }
+
+type VolatileType struct {
+	Token lexer.Token
+	Inner TypeExpr
+}
+
+func (vt *VolatileType) typeExprNode()        {}
+func (vt *VolatileType) TokenLiteral() string { return vt.Token.Literal }
+func (vt *VolatileType) Pos() (int, int)      { return vt.Token.Line, vt.Token.Column }
