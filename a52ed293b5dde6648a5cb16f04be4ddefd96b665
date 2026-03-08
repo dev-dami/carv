@@ -1,0 +1,29 @@
+pkg/codegen/cgen_test.go
+  b24c765ec37d0aad 1186-1251
+pkg/codegen/cgen.go
+  b24c765ec37d0aad 171,204,880-989,991-1007,1620-1623,1625-1630,1944-1945,2005-2028,2319-2320,2419-2438,2467-2498,2700-2701
+pkg/types/checker.go
+  b24c765ec37d0aad 639-647,658
+docs/samples/showcase.carv
+  b24c765ec37d0aad 21-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "a52ed293b5dde6648a5cb16f04be4ddefd96b665",
+  "prompts": {
+    "b24c765ec37d0aad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2825a173-d764-4520-86c1-edf309d6b0f3",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "dev-dami <damiade5banjo@gmail.com>",
+      "messages": [],
+      "total_additions": 314,
+      "total_deletions": 9,
+      "accepted_lines": 314,
+      "overriden_lines": 0
+    }
+  }
+}
