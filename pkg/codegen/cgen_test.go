@@ -2377,9 +2377,7 @@ let v = m["a"];
 		t.Fatalf("parser errors: %v", p.Errors())
 	}
 	checker := types.NewChecker()
-	if !checker.Check(program) {
-		// type checker may not fully resolve this - use output anyway
-	}
+	checker.Check(program)
 	gen := NewCGenerator()
 	gen.SetTypeInfo(checker.TypeInfo())
 	output := gen.Generate(program)
