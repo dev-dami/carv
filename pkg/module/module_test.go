@@ -1,6 +1,7 @@
 package module
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -891,7 +892,8 @@ func TestLoaderLoadParseError(t *testing.T) {
 	if err == nil {
 		t.Error("expected parse error")
 	}
-	if _, ok := err.(*ParseError); !ok {
+	var parseErr *ParseError
+	if !errors.As(err, &parseErr) {
 		t.Errorf("expected *ParseError, got %T", err)
 	}
 }
@@ -1029,7 +1031,10 @@ func TestFindProjectRootFromConfigDir(t *testing.T) {
 		t.Fatalf("FindProjectRoot error: %v", err)
 	}
 
-	absDir, _ := filepath.Abs(tmpDir)
+	absDir, err := filepath.Abs(tmpDir)
+	if err != nil {
+		t.Fatalf("filepath.Abs error: %v", err)
+	}
 	if root != absDir {
 		t.Errorf("expected %q, got %q", absDir, root)
 	}
