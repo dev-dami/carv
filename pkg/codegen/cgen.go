@@ -1985,11 +1985,12 @@ func (g *CGenerator) generateUnsafeStatement(s *ast.UnsafeStatement) {
 	g.writeln("}")
 }
 
-// generateAsmExpression emits a GCC-style inline assembly statement.
-// asm("template") -> __asm__ volatile("template");
+// generateAsmExpression emits a GCC-style inline assembly statement-expression.
+// asm("template") -> ({ __asm__ volatile("template"); })
 func (g *CGenerator) generateAsmExpression(e *ast.AsmExpression) string {
 	escaped := g.escapeString(e.Template.Value)
-	return fmt.Sprintf("__asm__ volatile(\"%s\")", escaped)
+	// Wrap the inline asm statement in a GCC statement-expression so it can appear in expression contexts.
+	return fmt.Sprintf("({ __asm__ volatile(\"%s\"); })", escaped)
 }
 
 func (g *CGenerator) generateIfStatement(e *ast.IfExpression) {
