@@ -123,6 +123,7 @@ type FunctionStatement struct {
 	Body       *BlockStatement
 	Public     bool
 	Async      bool
+	Unsafe     bool
 }
 
 func (fs *FunctionStatement) statementNode()       {}
@@ -274,3 +275,14 @@ type SelectCase struct {
 
 func (sc *SelectCase) TokenLiteral() string { return sc.Token.Literal }
 func (sc *SelectCase) Pos() (int, int)      { return sc.Token.Line, sc.Token.Column }
+
+// UnsafeStatement represents an `unsafe { ... }` block.
+// Inside an unsafe block, inline assembly (via asm expressions) is permitted.
+type UnsafeStatement struct {
+	Token lexer.Token
+	Body  *BlockStatement
+}
+
+func (us *UnsafeStatement) statementNode()       {}
+func (us *UnsafeStatement) TokenLiteral() string { return us.Token.Literal }
+func (us *UnsafeStatement) Pos() (int, int)      { return us.Token.Line, us.Token.Column }

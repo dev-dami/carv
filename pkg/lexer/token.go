@@ -148,6 +148,10 @@ const (
 	// Embedded keywords
 	TOKEN_VOLATILE // volatile
 	TOKEN_PACKED   // packed
+
+	// Unsafe & inline assembly keywords
+	TOKEN_UNSAFE // unsafe
+	TOKEN_ASM    // asm
 )
 
 var tokenNames = map[TokenType]string{
@@ -278,6 +282,9 @@ var tokenNames = map[TokenType]string{
 
 	TOKEN_VOLATILE: "volatile",
 	TOKEN_PACKED:   "packed",
+
+	TOKEN_UNSAFE: "unsafe",
+	TOKEN_ASM:    "asm",
 }
 
 func (t TokenType) String() string {
@@ -352,6 +359,9 @@ var keywords = map[string]TokenType{
 	"isize":     TOKEN_ISIZE_TYPE,
 	"volatile":  TOKEN_VOLATILE,
 	"packed":    TOKEN_PACKED,
+	"function":  TOKEN_FN,
+	"unsafe":    TOKEN_UNSAFE,
+	"asm":       TOKEN_ASM,
 }
 
 func LookupIdent(ident string) TokenType {
@@ -373,5 +383,5 @@ func (t Token) Pos() string {
 }
 
 func (t Token) IsKeyword() bool {
-	return t.Type >= TOKEN_FN && t.Type <= TOKEN_PACKED
+	return t.Type >= TOKEN_FN && t.Type <= TOKEN_ASM
 }

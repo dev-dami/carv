@@ -2856,3 +2856,109 @@ func checkParserErrors(t *testing.T, p *Parser) {
 	}
 	t.FailNow()
 }
+
+func TestFunctionKeywordAlias(t *testing.T) {
+	input := `function add(a: int, b: int) -> int {
+	return a + b;
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+
+	fnStmt, ok := program.Statements[0].(*ast.FunctionStatement)
+	if !ok {
+		t.Fatalf("stmt not *ast.FunctionStatement. got=%T", program.Statements[0])
+	}
+
+	if fnStmt.Name.Value != "add" {
+		t.Fatalf("expected function name 'add', got %s", fnStmt.Name.Value)
+	}
+
+	if len(fnStmt.Parameters) != 2 {
+		t.Fatalf("expected 2 parameters, got %d", len(fnStmt.Parameters))
+	}
+}
+
+func TestUnsafeFunctionStatement(t *testing.T) {
+	input := `unsafe fn set_sp(sp: usize) {
+	asm("mov rsp, %0");
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+
+	fnStmt, ok := program.Statements[0].(*ast.FunctionStatement)
+	if !ok {
+		t.Fatalf("stmt not *ast.FunctionStatement. got=%T", program.Statements[0])
+	}
+
+	if fnStmt.Name.Value != "set_sp" {
+		t.Fatalf("expected function name 'set_sp', got %s", fnStmt.Name.Value)
+	}
+
+	if !fnStmt.Unsafe {
+		t.Fatal("expected function to be marked unsafe")
+	}
+}
+
+func TestUnsafeBlock(t *testing.T) {
+	input := `unsafe {
+	asm("nop");
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+
+	unsafeStmt, ok := program.Statements[0].(*ast.UnsafeStatement)
+	if !ok {
+		t.Fatalf("stmt not *ast.UnsafeStatement. got=%T", program.Statements[0])
+	}
+
+	if len(unsafeStmt.Body.Statements) != 1 {
+		t.Fatalf("expected 1 statement in unsafe body, got %d", len(unsafeStmt.Body.Statements))
+	}
+}
+
+func TestAsmExpression(t *testing.T) {
+	input := `unsafe {
+	asm("nop");
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	unsafeStmt := program.Statements[0].(*ast.UnsafeStatement)
+	exprStmt, ok := unsafeStmt.Body.Statements[0].(*ast.ExpressionStatement)
+	if !ok {
+		t.Fatalf("expected ExpressionStatement inside unsafe, got %T", unsafeStmt.Body.Statements[0])
+	}
+
+	asmExpr, ok := exprStmt.Expression.(*ast.AsmExpression)
+	if !ok {
+		t.Fatalf("expected AsmExpression, got %T", exprStmt.Expression)
+	}
+
+	if asmExpr.Template.Value != "nop" {
+		t.Fatalf("expected asm template 'nop', got %q", asmExpr.Template.Value)
+	}
+}
