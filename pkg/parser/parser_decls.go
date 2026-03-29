@@ -346,7 +346,12 @@ func (p *Parser) parseAsmExpression() ast.Expression {
 			p.curToken.Line, p.curToken.Column))
 		return nil
 	}
-	expr.Template = &ast.StringLiteral{Token: p.curToken, Value: p.curToken.Literal}
+	stringExpr := p.parseStringLiteral()
+	if stringLit, ok := stringExpr.(*ast.StringLiteral); ok {
+		expr.Template = stringLit
+	} else {
+		return nil
+	}
 
 	if !p.expectPeek(lexer.TOKEN_RPAREN) {
 		return nil
