@@ -1,6 +1,14 @@
 package module
 
 var builtinModuleExports = map[string][]string{
+	"fs": {
+		"read_file",
+		"write_file",
+		"append_file",
+		"file_exists",
+		"delete_file",
+		"list_dir",
+	},
 	"net": {
 		"tcp_listen",
 		"tcp_accept",

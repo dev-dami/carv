@@ -2492,3 +2492,121 @@ fn main_test() {
 		t.Errorf("expected inline asm __asm__ volatile(\"nop\") in output, got:\n%s", output)
 	}
 }
+
+// File I/O builtin tests
+
+func TestAppendFileCall(t *testing.T) {
+	output := generateOutputFromSource(t, `let ok = append_file("test.txt", "world");`)
+	if !strings.Contains(output, "carv_append_file(") {
+		t.Errorf("expected carv_append_file call, got:\n%s", output)
+	}
+}
+
+func TestDeleteFileCall(t *testing.T) {
+	output := generateOutputFromSource(t, `let ok = delete_file("test.txt");`)
+	if !strings.Contains(output, "carv_delete_file(") {
+		t.Errorf("expected carv_delete_file call, got:\n%s", output)
+	}
+}
+
+func TestListDirCall(t *testing.T) {
+	output := generateOutputFromSource(t, `let entries = list_dir(".");`)
+	if !strings.Contains(output, "carv_list_dir(") {
+		t.Errorf("expected carv_list_dir call, got:\n%s", output)
+	}
+}
+
+func TestRuntimeIncludesDirent(t *testing.T) {
+	output := generateOutputFromSource(t, ``)
+	if !strings.Contains(output, "#include <dirent.h>") {
+		t.Errorf("expected dirent.h include in runtime, got:\n%s", output)
+	}
+}
+
+func TestFileIOModuleReadFile(t *testing.T) {
+	output := generateOutputFromSource(t, `
+require "fs" as fs;
+fn main() {
+	let data = fs.read_file("test.txt");
+}
+`)
+	if !strings.Contains(output, "carv_read_file(") {
+		t.Errorf("expected carv_read_file via fs module, got:\n%s", output)
+	}
+}
+
+func TestFileIOModuleWriteFile(t *testing.T) {
+	output := generateOutputFromSource(t, `
+require "fs" as fs;
+fn main() {
+	let ok = fs.write_file("out.txt", "hello");
+}
+`)
+	if !strings.Contains(output, "carv_write_file(") {
+		t.Errorf("expected carv_write_file via fs module, got:\n%s", output)
+	}
+}
+
+func TestFileIOModuleAppendFile(t *testing.T) {
+	output := generateOutputFromSource(t, `
+require "fs" as fs;
+fn main() {
+	let ok = fs.append_file("out.txt", "more");
+}
+`)
+	if !strings.Contains(output, "carv_append_file(") {
+		t.Errorf("expected carv_append_file via fs module, got:\n%s", output)
+	}
+}
+
+func TestFileIOModuleFileExists(t *testing.T) {
+	output := generateOutputFromSource(t, `
+require "fs" as fs;
+fn main() {
+	let exists = fs.file_exists("out.txt");
+}
+`)
+	if !strings.Contains(output, "carv_file_exists(") {
+		t.Errorf("expected carv_file_exists via fs module, got:\n%s", output)
+	}
+}
+
+func TestFileIOModuleDeleteFile(t *testing.T) {
+	output := generateOutputFromSource(t, `
+require "fs" as fs;
+fn main() {
+	let ok = fs.delete_file("out.txt");
+}
+`)
+	if !strings.Contains(output, "carv_delete_file(") {
+		t.Errorf("expected carv_delete_file via fs module, got:\n%s", output)
+	}
+}
+
+func TestFileIOModuleListDir(t *testing.T) {
+	output := generateOutputFromSource(t, `
+require "fs" as fs;
+fn main() {
+	let entries = fs.list_dir(".");
+}
+`)
+	if !strings.Contains(output, "carv_list_dir(") {
+		t.Errorf("expected carv_list_dir via fs module, got:\n%s", output)
+	}
+}
+
+func TestFileIORuntimeEmitted(t *testing.T) {
+	output := generateOutputFromSource(t, ``)
+	for _, fn := range []string{
+		"carv_read_file",
+		"carv_write_file",
+		"carv_append_file",
+		"carv_file_exists",
+		"carv_delete_file",
+		"carv_list_dir",
+	} {
+		if !strings.Contains(output, fn) {
+			t.Errorf("expected %s to be emitted in runtime, got:\n%s", fn, output)
+		}
+	}
+}
