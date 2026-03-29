@@ -500,6 +500,7 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("#include <sys/socket.h>")
 	g.writeln("#include <netinet/in.h>")
 	g.writeln("#include <arpa/inet.h>")
+	g.writeln("#include <dirent.h>")
 	g.writeln("")
 	g.writeln("// Arena allocator for automatic memory management")
 	g.writeln("#define CARV_ARENA_BLOCK_SIZE (1024 * 1024)  // 1MB blocks")
@@ -701,6 +702,45 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("    FILE* f = fopen(path.data, \"r\");")
 	g.writeln("    if (f) { fclose(f); return true; }")
 	g.writeln("    return false;")
+	g.writeln("}")
+	g.writeln("")
+
+	g.writeln("carv_bool carv_append_file(carv_string path, carv_string content) {")
+	g.writeln("    FILE* f = fopen(path.data, \"ab\");")
+	g.writeln("    if (!f) return false;")
+	g.writeln("    size_t written = fwrite(content.data, 1, content.len, f);")
+	g.writeln("    fclose(f);")
+	g.writeln("    return written == content.len;")
+	g.writeln("}")
+	g.writeln("")
+
+	g.writeln("carv_bool carv_delete_file(carv_string path) {")
+	g.writeln("    return remove(path.data) == 0;")
+	g.writeln("}")
+	g.writeln("")
+
+	g.writeln("carv_string_array carv_list_dir(carv_string path) {")
+	g.writeln("    carv_string_array arr = {NULL, 0, 0};")
+	g.writeln("    DIR* d = opendir(path.data);")
+	g.writeln("    if (!d) return arr;")
+	g.writeln("    carv_int cap = 16;")
+	g.writeln("    arr.data = (carv_string*)carv_arena_alloc(cap * sizeof(carv_string));")
+	g.writeln("    arr.len = 0;")
+	g.writeln("    arr.cap = cap;")
+	g.writeln("    struct dirent* entry;")
+	g.writeln("    while ((entry = readdir(d)) != NULL) {")
+	g.writeln("        if (strcmp(entry->d_name, \".\") == 0 || strcmp(entry->d_name, \"..\") == 0) continue;")
+	g.writeln("        if (arr.len >= arr.cap) {")
+	g.writeln("            carv_int new_cap = arr.cap * 2;")
+	g.writeln("            carv_string* new_data = (carv_string*)carv_arena_alloc(new_cap * sizeof(carv_string));")
+	g.writeln("            memcpy(new_data, arr.data, arr.len * sizeof(carv_string));")
+	g.writeln("            arr.data = new_data;")
+	g.writeln("            arr.cap = new_cap;")
+	g.writeln("        }")
+	g.writeln("        arr.data[arr.len++] = carv_strdup_str(entry->d_name);")
+	g.writeln("    }")
+	g.writeln("    closedir(d);")
+	g.writeln("    return arr;")
 	g.writeln("}")
 	g.writeln("")
 
@@ -2199,6 +2239,22 @@ func (g *CGenerator) generateCallExpression(e *ast.CallExpression) string {
 		return fmt.Sprintf("carv_file_exists(%s)", arg)
 	}
 
+	if fn == "append_file" && len(e.Arguments) == 2 {
+		path := g.generateExpression(e.Arguments[0])
+		content := g.generateExpression(e.Arguments[1])
+		return fmt.Sprintf("carv_append_file(%s, %s)", path, content)
+	}
+
+	if fn == "delete_file" && len(e.Arguments) == 1 {
+		arg := g.generateExpression(e.Arguments[0])
+		return fmt.Sprintf("carv_delete_file(%s)", arg)
+	}
+
+	if fn == "list_dir" && len(e.Arguments) == 1 {
+		arg := g.generateExpression(e.Arguments[0])
+		return fmt.Sprintf("carv_list_dir(%s)", arg)
+	}
+
 	if fn == "tcp_listen" && len(e.Arguments) == 2 {
 		host := g.generateExpression(e.Arguments[0])
 		port := g.generateExpression(e.Arguments[1])
@@ -2284,6 +2340,21 @@ func (g *CGenerator) generateBuiltinModuleCall(member *ast.MemberExpression, arg
 	}
 
 	switch member.Member.Value {
+	// File I/O
+	case "read_file", "file_exists", "delete_file", "list_dir":
+		if len(args) != 1 {
+			return "", false
+		}
+		arg := g.generateExpression(args[0])
+		return fmt.Sprintf("carv_%s(%s)", member.Member.Value, arg), true
+	case "write_file", "append_file":
+		if len(args) != 2 {
+			return "", false
+		}
+		path := g.generateExpression(args[0])
+		content := g.generateExpression(args[1])
+		return fmt.Sprintf("carv_%s(%s, %s)", member.Member.Value, path, content), true
+
 	case "tcp_listen":
 		if len(args) != 2 {
 			return "", false
