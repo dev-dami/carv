@@ -2451,3 +2451,44 @@ let f = fn() -> int { return double(x); };
 		t.Errorf("expected captured x via call expression arg, got:\n%s", output)
 	}
 }
+
+func TestGenerateFunctionKeywordAlias(t *testing.T) {
+	output := generateOutputFromSource(t, `
+function add(a: int, b: int) -> int {
+	return a + b;
+}
+`)
+	if !strings.Contains(output, "add(") {
+		t.Errorf("expected C function 'add' in output, got:\n%s", output)
+	}
+}
+
+func TestGenerateUnsafeFunction(t *testing.T) {
+	output := generateOutputFromSource(t, `
+unsafe fn enable_interrupts() {
+	asm("sti");
+}
+`)
+	if !strings.Contains(output, "enable_interrupts") {
+		t.Errorf("expected 'enable_interrupts' in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, `__asm__ volatile("sti")`) {
+		t.Errorf("expected inline asm __asm__ volatile(\"sti\") in output, got:\n%s", output)
+	}
+}
+
+func TestGenerateUnsafeBlock(t *testing.T) {
+	output := generateOutputFromSource(t, `
+fn main_test() {
+	unsafe {
+		asm("nop");
+	}
+}
+`)
+	if !strings.Contains(output, "/* unsafe */") {
+		t.Errorf("expected '/* unsafe */' comment in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, `__asm__ volatile("nop")`) {
+		t.Errorf("expected inline asm __asm__ volatile(\"nop\") in output, got:\n%s", output)
+	}
+}

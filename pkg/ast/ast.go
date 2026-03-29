@@ -364,3 +364,14 @@ type DerefExpression struct {
 func (de *DerefExpression) expressionNode()      {}
 func (de *DerefExpression) TokenLiteral() string { return de.Token.Literal }
 func (de *DerefExpression) Pos() (int, int)      { return de.Token.Line, de.Token.Column }
+
+// AsmExpression represents an inline assembly call: asm("template").
+// It compiles to a C __asm__ volatile("template") statement.
+type AsmExpression struct {
+	Token    lexer.Token
+	Template *StringLiteral // required: the assembly template string
+}
+
+func (ae *AsmExpression) expressionNode()      {}
+func (ae *AsmExpression) TokenLiteral() string { return ae.Token.Literal }
+func (ae *AsmExpression) Pos() (int, int)      { return ae.Token.Line, ae.Token.Column }

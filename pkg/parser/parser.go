@@ -50,6 +50,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(lexer.TOKEN_LBRACE, p.parseMapLiteral)
 	p.registerPrefix(lexer.TOKEN_INTERP_STRING, p.parseInterpolatedString)
 	p.registerPrefix(lexer.TOKEN_AWAIT, p.parseAwaitExpression)
+	p.registerPrefix(lexer.TOKEN_ASM, p.parseAsmExpression)
 	p.registerPrefix(lexer.TOKEN_INT_TYPE, p.parseTypeAsIdentifier)
 	p.registerPrefix(lexer.TOKEN_FLOAT_TYPE, p.parseTypeAsIdentifier)
 	p.registerPrefix(lexer.TOKEN_BOOL_TYPE, p.parseTypeAsIdentifier)
@@ -189,6 +190,8 @@ func (p *Parser) parseStatement() ast.Statement {
 			fnStmt.Async = true
 		}
 		stmt = fnStmt
+	case lexer.TOKEN_UNSAFE:
+		stmt = p.parseUnsafeStatement()
 	case lexer.TOKEN_PACKED:
 		p.nextToken()
 		if p.curTokenIs(lexer.TOKEN_CLASS) {
@@ -269,6 +272,19 @@ func (p *Parser) parsePublicStatement() ast.Statement {
 		stmt := p.parseFunctionStatement()
 		if stmt != nil {
 			stmt.Public = true
+		}
+		return stmt
+	case lexer.TOKEN_UNSAFE:
+		p.nextToken()
+		if !p.curTokenIs(lexer.TOKEN_FN) {
+			p.errors = append(p.errors, fmt.Sprintf("line %d:%d: expected fn after pub unsafe",
+				p.curToken.Line, p.curToken.Column))
+			return nil
+		}
+		stmt := p.parseFunctionStatement()
+		if stmt != nil {
+			stmt.Public = true
+			stmt.Unsafe = true
 		}
 		return stmt
 	case lexer.TOKEN_ASYNC:

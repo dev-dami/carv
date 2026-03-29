@@ -1,6 +1,8 @@
 package parser
 
 import (
+	"fmt"
+
 	"github.com/dev-dami/carv/pkg/ast"
 	"github.com/dev-dami/carv/pkg/lexer"
 )
@@ -304,4 +306,51 @@ func (p *Parser) parseImplMethodDecl() *ast.MethodDecl {
 	method.Body = p.parseBlockStatement()
 
 	return method
+}
+
+// parseUnsafeStatement parses `unsafe { ... }` or `unsafe fn name(...) ...`.
+// For `unsafe { ... }` an UnsafeStatement is returned.
+// For `unsafe fn ...` the resulting FunctionStatement has Unsafe set to true.
+func (p *Parser) parseUnsafeStatement() ast.Statement {
+	token := p.curToken
+
+	if p.peekTokenIs(lexer.TOKEN_FN) {
+		p.nextToken()
+		fnStmt := p.parseFunctionStatement()
+		if fnStmt != nil {
+			fnStmt.Unsafe = true
+		}
+		return fnStmt
+	}
+
+	if !p.expectPeek(lexer.TOKEN_LBRACE) {
+		return nil
+	}
+	stmt := &ast.UnsafeStatement{Token: token}
+	stmt.Body = p.parseBlockStatement()
+	return stmt
+}
+
+// parseAsmExpression parses `asm("template")`.
+// It is used inside unsafe blocks/functions to emit inline assembly.
+func (p *Parser) parseAsmExpression() ast.Expression {
+	expr := &ast.AsmExpression{Token: p.curToken}
+
+	if !p.expectPeek(lexer.TOKEN_LPAREN) {
+		return nil
+	}
+
+	p.nextToken()
+	if !p.curTokenIs(lexer.TOKEN_STRING) {
+		p.errors = append(p.errors, fmt.Sprintf("line %d:%d: asm() requires a string literal template",
+			p.curToken.Line, p.curToken.Column))
+		return nil
+	}
+	expr.Template = &ast.StringLiteral{Token: p.curToken, Value: p.curToken.Literal}
+
+	if !p.expectPeek(lexer.TOKEN_RPAREN) {
+		return nil
+	}
+
+	return expr
 }

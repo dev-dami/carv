@@ -1792,6 +1792,8 @@ func (g *CGenerator) generateStatement(stmt ast.Statement) {
 		g.writeln("continue;")
 	case *ast.BlockStatement:
 		g.generateBlockStatement(s)
+	case *ast.UnsafeStatement:
+		g.generateUnsafeStatement(s)
 	}
 }
 
@@ -1966,6 +1968,30 @@ func (g *CGenerator) generateBlockStatement(s *ast.BlockStatement) {
 	g.writeln("}")
 }
 
+// generateUnsafeStatement emits the body of an `unsafe { ... }` block.
+// The contents are wrapped in a C block to limit scope, matching block statement behaviour.
+func (g *CGenerator) generateUnsafeStatement(s *ast.UnsafeStatement) {
+	g.writeln("/* unsafe */")
+	g.writeln("{")
+	g.indent++
+	g.enterScope()
+
+	for _, stmt := range s.Body.Statements {
+		g.generateStatement(stmt)
+	}
+
+	g.exitScope()
+	g.indent--
+	g.writeln("}")
+}
+
+// generateAsmExpression emits a GCC-style inline assembly statement.
+// asm("template") -> __asm__ volatile("template");
+func (g *CGenerator) generateAsmExpression(e *ast.AsmExpression) string {
+	escaped := g.escapeString(e.Template.Value)
+	return fmt.Sprintf("__asm__ volatile(\"%s\")", escaped)
+}
+
 func (g *CGenerator) generateIfStatement(e *ast.IfExpression) {
 	cond := g.generateExpression(e.Condition)
 	g.flushPreamble()
@@ -2055,6 +2081,8 @@ func (g *CGenerator) generateExpression(expr ast.Expression) string {
 		return g.generateCastExpression(e)
 	case *ast.FunctionLiteral:
 		return g.generateClosureExpression(e)
+	case *ast.AsmExpression:
+		return g.generateAsmExpression(e)
 	}
 	return ""
 }
