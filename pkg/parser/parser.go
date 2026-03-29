@@ -50,7 +50,6 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(lexer.TOKEN_LBRACE, p.parseMapLiteral)
 	p.registerPrefix(lexer.TOKEN_INTERP_STRING, p.parseInterpolatedString)
 	p.registerPrefix(lexer.TOKEN_AWAIT, p.parseAwaitExpression)
-	p.registerPrefix(lexer.TOKEN_ASM, p.parseAsmExpression)
 	p.registerPrefix(lexer.TOKEN_INT_TYPE, p.parseTypeAsIdentifier)
 	p.registerPrefix(lexer.TOKEN_FLOAT_TYPE, p.parseTypeAsIdentifier)
 	p.registerPrefix(lexer.TOKEN_BOOL_TYPE, p.parseTypeAsIdentifier)
