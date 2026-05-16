@@ -67,6 +67,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(lexer.TOKEN_F64_TYPE, p.parseTypeAsIdentifier)
 	p.registerPrefix(lexer.TOKEN_USIZE_TYPE, p.parseTypeAsIdentifier)
 	p.registerPrefix(lexer.TOKEN_ISIZE_TYPE, p.parseTypeAsIdentifier)
+	p.registerPrefix(lexer.TOKEN_ASM, p.parseAsmExpression)
 
 	p.infixParseFns = make(map[lexer.TokenType]infixParseFn)
 	p.registerInfix(lexer.TOKEN_PLUS, p.parseInfixExpression)
