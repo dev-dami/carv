@@ -421,9 +421,12 @@ Initialize a project with `carv init`:
 ```text
 myproject/
 ├── carv.toml          # project config
+├── carv.lock          # pinned dependency versions (auto-generated)
 ├── src/
 │   └── main.carv      # entry point
-└── carv_modules/      # dependencies (future)
+└── carv_modules/      # installed dependencies
+    ├── lib-a/         # git or path dependency
+    └── lib-b/         # transitive dependency
 ```
 
 ### carv.toml
@@ -432,15 +435,59 @@ myproject/
 [package]
 name = "myproject"
 version = "0.1.0"
+description = "My Carv project"
 entry = "src/main.carv"
 
 [dependencies]
-# future: external packages
+mylib = { git = "https://github.com/user/mylib", version = "^1.0.0" }
+utils = { path = "../utils" }
+
+[dev-dependencies]
+test-framework = { git = "https://github.com/user/test-carv", tag = "v0.3.0" }
 
 [build]
 output = "build"
 optimize = true
+debug = false
+
+[scripts]
+test = "carv build src/test.carv && ./build/test"
 ```
+
+### Package Manager
+
+Carv includes a built-in package manager with semver resolution:
+
+```bash
+# Add a dependency
+carv add mylib --git https://github.com/user/mylib --version "^1.0.0"
+carv add utils --path ../utils
+carv add test-fw --git https://github.com/user/test --tag v0.3.0
+
+# Install all dependencies (resolves transitive deps)
+carv install
+
+# List installed packages
+carv pkg list
+
+# Show details about a package
+carv pkg info mylib
+
+# Update dependencies
+carv pkg update          # update all
+carv pkg update mylib    # update specific
+
+# Publish current package (creates git tag for GitHub release)
+carv pkg publish
+```
+
+Version constraints follow semver 2.0.0:
+- `^1.2.3` — compatible with 1.x.x (>=1.2.3, <2.0.0)
+- `~1.2.3` — approximately 1.2.x (>=1.2.3, <1.3.0)
+- `>=1.0.0, <2.0.0` — compound constraints
+- `*` — any version
+
+Dependencies are resolved transitively with cycle detection. The `carv.lock` file pins exact git revisions for reproducible builds.
 
 ## Result Types
 

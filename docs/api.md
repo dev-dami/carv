@@ -109,19 +109,72 @@ Key API:
 - `module.NewLoader(basePath string) *module.Loader`
 - `(*Loader).Load(importPath string, fromFile string) (*module.Module, error)`
 - `module.LoadConfig(dir string) (*module.Config, error)`
+- `(*Config).Save(dir string) error`
 - `module.FindProjectRoot(startDir string) (string, error)`
+- `module.DefaultConfig(name string) *module.Config`
+- `module.LoadLock(dir string) (*module.LockFile, error)`
+- `module.SaveLock(dir string, lf *module.LockFile) error`
+
+Data types:
+- `Config` — full carv.toml structure (package info, dependencies, build config, scripts)
+- `Dependency` — version, git URL, branch, tag, or local path
+- `LockFile` / `LockedPackage` — pinned dependency versions with source and revision
 
 Design notes:
-- Supports relative imports, project-local imports, and built-in modules (`net`, `web`).
+- Supports relative imports, project-local imports, built-in modules, and external packages from `carv_modules/`.
+- Lock files enable reproducible builds by pinning exact git revisions.
 
-### `pkg/ast`
+### `pkg/semver`
 
-Purpose: shared AST node definitions used by parser, checker, eval, and codegen.
+Purpose: semantic version parsing and constraint matching for the package manager.
 
-Usage pattern:
-- Parsers construct AST nodes.
-- All downstream passes switch on concrete node types.
-- Source locations are retained for diagnostics.
+Key API:
+- `semver.ParseVersion(s string) (Version, error)`
+- `semver.ParseConstraint(s string) (Constraint, error)`
+- `semver.ParseConstraints(s string) (Constraints, error)`
+- `(Constraint).Matches(v Version) bool`
+- `(Constraints).Matches(v Version) bool`
+- `semver.Satisfies(versionStr, constraintStr string) (bool, error)`
+
+Supported constraints:
+- Comparison: `=`, `!=`, `>`, `<`, `>=`, `<=`
+- Caret: `^1.2.3` (compatible with 1.x.x)
+- Tilde: `~1.2.3` (approximately 1.2.x)
+- Wildcard: `*` (any version)
+- Compound: `>=1.0.0, <2.0.0`
+
+### `pkg/resolver`
+
+Purpose: transitive dependency resolution with cycle detection and GitHub tag resolution.
+
+Key API:
+- `resolver.New(rootDir string) *Resolver`
+- `(*Resolver).Resolve(cfg *module.Config) ([]*ResolvedDep, error)`
+- `(*Resolver).LockFile() *module.LockFile`
+- `resolver.PrintTree(deps []*ResolvedDep, prefix string)`
+
+Data types:
+- `ResolvedDep` — resolved dependency with name, version, source, revision, and transitive deps
+
+Design notes:
+- Resolves git dependencies by fetching tags via `git ls-remote` and matching against semver constraints.
+- Path-based dependencies are symlinked (with copy fallback).
+- Cycle detection via visiting set prevents infinite recursion.
+
+### `pkg/lsp`
+
+Purpose: Language Server Protocol implementation for editor integration.
+
+Key API:
+- `lsp.RunServer()` — starts the LSP server on stdin/stdout
+
+Protocol: LSP 3.16 via `opa-oz/glsp`, stdio transport.
+
+Provided capabilities:
+- `textDocument/diagnostic` — type errors and warnings
+- `textDocument/hover` — type information for symbols
+- `textDocument/definition` — go-to-definition using tracked symbol positions
+- `textDocument/completion` — keyword and symbol suggestions
 
 ---
 

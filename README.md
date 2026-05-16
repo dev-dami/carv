@@ -140,7 +140,14 @@ Then:
 ./build/carv build file.carv               # compile to binary (host)
 ./build/carv build --target arm file.carv   # compile for ARM Cortex-M
 ./build/carv emit-c file.carv              # emit generated C source
+./build/carv repl                          # start interactive REPL
+./build/carv lsp                           # start language server
 ./build/carv init                          # create new project with carv.toml
+./build/carv add mylib --git <url>         # add a dependency
+./build/carv install                       # install all dependencies
+./build/carv pkg list                      # list installed packages
+./build/carv pkg update                    # update dependencies
+./build/carv pkg publish                   # publish package to GitHub
 ```
 
 For ARM targets, you need `arm-none-eabi-gcc` installed.
@@ -188,10 +195,52 @@ For ARM targets, you need `arm-none-eabi-gcc` installed.
 ### Tooling
 - [x] Project config (`carv.toml`)
 - [x] Build scripts
+- [x] REPL with history, tab completion, `:type`, `:load`, `:clear`
+- [x] LSP server (diagnostics, hover, go-to-definition, completion)
+- [x] VS Code extension (syntax highlighting + LSP client)
+- [x] Package manager (`carv pkg`, semver resolution, lock files, GitHub registry)
 - [ ] HAL modules (GPIO, UART, SPI, I2C, Timers)
-- [ ] Package manager
 - [ ] Self-hosting
-- [ ] LSP / Editor support
+
+---
+
+## REPL
+
+```bash
+$ carv repl
+carv 0.6.0 - Type :help for commands
+>>> let x = 42;
+>>> :type x
+i32
+>>> :load script.carv
+>>> :clear
+```
+
+REPL features: command history, tab completion, multi-line input, `:help`, `:type`, `:clear`, `:load`.
+
+## Package Manager
+
+Carv has a built-in package manager with semver resolution and lock files:
+
+```bash
+carv add mylib --git https://github.com/user/mylib --version "^1.0.0"
+carv install
+carv pkg list
+carv pkg update
+carv pkg publish
+```
+
+Dependencies are resolved transitively, with cycle detection. Lock files (`carv.lock`) pin exact versions for reproducible builds. Packages are published via git tags on GitHub.
+
+## LSP & Editor Support
+
+Start the language server with `carv lsp` (stdio transport). Provides:
+- **Diagnostics** — type errors, ownership violations, warnings
+- **Hover** — type info on hover
+- **Go-to-definition** — jump to symbol definition
+- **Completion** — keyword and symbol suggestions
+
+A VS Code extension is included in `editors/vscode/` with syntax highlighting and LSP client integration.
 
 ---
 

@@ -108,16 +108,56 @@ Module system for loading and resolving dependencies.
 Key files:
 - `loader.go` - module resolution and loading
 - `config.go` - `carv.toml` parsing
+- `lock.go` - `carv.lock` lock file handling
+- `builtin_modules.go` - built-in module exports (fs, net, gpio, uart, spi, i2c, timer)
 
 Supports:
 - Relative imports (`./utils`, `../lib/math`)
 - Project-local imports (from `src/` directory)
-- Built-in standard modules (`net`, `web`)
-- Future: external packages (from `carv_modules/`)
+- External packages (from `carv_modules/`)
+- Built-in standard modules (`fs`, `net`, `gpio`, `uart`, `spi`, `i2c`, `timer`)
 
-### `cmd/carv`
+### `pkg/semver`
 
-CLI entry point. Handles `run`, `build`, `emit-c`, `repl`, and `init` commands.
+Semantic version parsing and constraint matching for the package manager.
+
+Supports:
+- Version parsing: `1.0.0`, `v1.2.3-beta.1`, `0.1.0+build.42`
+- Constraint operators: `=`, `!=`, `>`, `<`, `>=`, `<=`, `^`, `~`, `*`
+- Caret ranges: `^1.2.3` := `>=1.2.3, <2.0.0`
+- Tilde ranges: `~1.2.3` := `>=1.2.3, <1.3.0`
+- Comma/space-separated compound constraints: `>=1.0.0, <2.0.0`
+
+### `pkg/resolver`
+
+Transitive dependency resolution with cycle detection and GitHub tag resolution.
+
+Key features:
+- Resolves dependencies from `carv.toml`, including transitive deps
+- Cycle detection via visiting set
+- Semver constraint matching against git tags (`git ls-remote --tags`)
+- Lock file generation from resolved tree
+- Path-based and git-based dependency sources
+
+### `pkg/lsp`
+
+Language Server Protocol implementation using `opa-oz/glsp` (protocol 3.16, stdio transport).
+
+Provides:
+- **Diagnostics** — type errors and warnings on file open/change
+- **Hover** — type information for symbols
+- **Go-to-definition** — jump to symbol definition using tracked positions
+- **Completion** — keyword and symbol suggestions
+
+### `cmd-carv`
+
+CLI entry point. Handles `build`, `emit-c`, `repl`, `lsp`, `init`, `add`, `remove`, `install`, and `pkg` commands.
+
+Subcommands:
+- `carv pkg list` — list installed dependencies with lock status
+- `carv pkg info <name>` — show dependency details including transitive deps
+- `carv pkg update [name]` — update dependencies to latest matching versions
+- `carv pkg publish` — create git tag for GitHub release registry
 
 ## Design Decisions
 
@@ -135,7 +175,7 @@ Easier to parse. Maybe I'll add automatic semicolon insertion later, but for now
 
 ## Future Plans
 
-The goal is self-hosting - writing the Carv compiler in Carv. That means I need:
+The goal is self-hosting - writing the Carv compiler in Carv itself.r in Carv. That means I need:
 
 1. ~~Module/import system~~ ✓ Done!
 2. ~~String interpolation~~ ✓ Done!
