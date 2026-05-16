@@ -5,7 +5,7 @@
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/dev-dami/carv/main/scripts/install.sh | bash
 #   # or with a specific version:
-#   curl -fsSL https://raw.githubusercontent.com/dev-dami/carv/main/scripts/install.sh | bash -s -- v0.6.0
+#   curl -fsSL https://raw.githubusercontent.com/dev-dami/carv/main/scripts/install.sh | bash -s -- v0.5.1-beta
 #
 set -euo pipefail
 

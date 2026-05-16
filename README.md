@@ -161,7 +161,7 @@ No need to clone or build — grab a pre-built binary directly:
 curl -fsSL https://raw.githubusercontent.com/dev-dami/carv/main/scripts/install.sh | bash
 
 # Install a specific version
-curl -fsSL https://raw.githubusercontent.com/dev-dami/carv/main/scripts/install.sh | bash -s -- v0.6.0
+curl -fsSL https://raw.githubusercontent.com/dev-dami/carv/main/scripts/install.sh | bash -s -- v0.5.1-beta
 ```
 
 The script auto-detects your OS/architecture, downloads the matching binary from GitHub releases, and installs it to `/usr/local/bin` (or `~/.local/bin`).
@@ -224,7 +224,7 @@ Supported platforms: **Linux** (amd64, arm64), **macOS** (amd64, arm64), **Windo
 
 ```bash
 $ carv repl
-carv 0.6.0 - Type :help for commands
+carv 0.5.1-beta - Type :help for commands
 >>> let x = 42;
 >>> :type x
 i32
