@@ -877,6 +877,15 @@ func (c *Checker) checkMemberExpression(e *ast.MemberExpression) Type {
 		}
 	}
 
+	// Unwrap RefType to get the underlying ClassType (e.g. self: &Employee)
+	if ref, ok := objType.(*RefType); ok {
+		if cls, ok := ref.Inner.(*ClassType); ok {
+			if fieldType, exists := cls.Fields[e.Member.Value]; exists {
+				return fieldType
+			}
+		}
+	}
+
 	return Any
 }
 
