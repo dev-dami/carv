@@ -1,0 +1,163 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Install gcc
+        run: sudo apt-get update && sudo apt-get install -y gcc
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -v -race -tags=gcc -coverprofile=coverage.out ./...
+
+      - name: Check coverage threshold
+        run: |
+          TOTAL=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
+          echo "Total coverage: ${TOTAL}%"
+          if (( $(echo "$TOTAL < 80" | bc -l) )); then
+            echo "Coverage ${TOTAL}% is below 80% threshold"
+            exit 1
+          fi
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ${{ matrix.os }}
+    needs: [test, lint]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
+          go build -ldflags "-s -w -X main.version=${{ github.ref_name }}" \
+            -o dist/carv-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}${EXT} \
+            ./cmd/carv/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: carv-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Flatten release assets
+        run: |
+          mkdir -p assets
+          find dist/ -type f -exec mv {} assets/ \;
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          TAG="${{ github.ref_name }}"
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${TAG}$" | head -1 || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            RANGE="$TAG"
+          else
+            RANGE="${PREV_TAG}..${TAG}"
+          fi
+          CHANGES=$(git log --pretty=format:"- %s (%h)" $RANGE 2>/dev/null || echo "Initial release")
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "## Carv $TAG" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "### Changes" >> $GITHUB_OUTPUT
+          echo "$CHANGES" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "### Binaries" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "| Platform | Architecture | File |" >> $GITHUB_OUTPUT
+          echo "|----------|-------------|------|" >> $GITHUB_OUTPUT
+          for f in assets/*; do
+            BASENAME=$(basename "$f")
+            echo "$BASENAME" | grep -q "linux-amd64" && echo "| Linux | amd64 | \`$BASENAME\` |" >> $GITHUB_OUTPUT
+            echo "$BASENAME" | grep -q "linux-arm64" && echo "| Linux | arm64 | \`$BASENAME\` |" >> $GITHUB_OUTPUT
+            echo "$BASENAME" | grep -q "darwin-amd64" && echo "| macOS | amd64 | \`$BASENAME\` |" >> $GITHUB_OUTPUT
+            echo "$BASENAME" | grep -q "darwin-arm64" && echo "| macOS | arm64 (Apple Silicon) | \`$BASENAME\` |" >> $GITHUB_OUTPUT
+            echo "$BASENAME" | grep -q "windows-amd64" && echo "| Windows | amd64 | \`$BASENAME\` |" >> $GITHUB_OUTPUT
+          done
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Carv ${{ github.ref_name }}
+          body: ${{ steps.notes.outputs.changelog }}
+          files: assets/*
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
