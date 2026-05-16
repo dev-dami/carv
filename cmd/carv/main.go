@@ -16,7 +16,7 @@ import (
 	"github.com/dev-dami/carv/pkg/types"
 )
 
-const version = "0.5.1-beta"
+const version = "0.6.0"
 
 func main() {
 	if len(os.Args) < 2 {

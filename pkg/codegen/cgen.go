@@ -43,6 +43,8 @@ type CGenerator struct {
 	arrayLengths    map[string]int
 	scope           *cgenScope
 	fnReturnTypes   map[string]string
+	fnResultOkTypes map[string]string
+	fnResultErrTypes map[string]string
 	typeInfo        map[ast.Expression]types.Type
 	preamble        []string
 	inFunction      bool
@@ -51,7 +53,7 @@ type CGenerator struct {
 	implList        []*implInfo
 	closureCounter  int
 	closureDefs     []string
-	captureMap      map[string]string // varName -> "__env->varName" during closure function generation
+	captureMap      map[string]string
 	lastClosureType string
 	hasAsync        bool
 	asyncFns        map[string]*asyncFnInfo
@@ -59,6 +61,7 @@ type CGenerator struct {
 	asyncFnName     string
 	asyncStateID    int
 	builtinAliases  map[string]string
+	classFields     map[string]map[string]string
 }
 
 type asyncFnInfo struct {
@@ -75,11 +78,14 @@ type paramInfo struct {
 
 func NewCGenerator() *CGenerator {
 	g := &CGenerator{
-		arrayLengths:   make(map[string]int),
-		fnReturnTypes:  make(map[string]string),
-		interfaces:     make(map[string]*interfaceInfo),
-		asyncFns:       make(map[string]*asyncFnInfo),
-		builtinAliases: make(map[string]string),
+		arrayLengths:    make(map[string]int),
+		fnReturnTypes:   make(map[string]string),
+		fnResultOkTypes: make(map[string]string),
+		fnResultErrTypes: make(map[string]string),
+		interfaces:      make(map[string]*interfaceInfo),
+		asyncFns:        make(map[string]*asyncFnInfo),
+		builtinAliases:  make(map[string]string),
+		classFields:     make(map[string]map[string]string),
 	}
 	g.scope = newScope(nil)
 	return g
@@ -271,10 +277,28 @@ func (g *CGenerator) collectFunctionReturnTypes(program *ast.Program) {
 
 			if retType == "carv_result" {
 				okType, errType := g.inferResultPayloadTypes(fn.Body)
-				g.declareVar(fn.Name.Value+"_result_ok", okType, false, false)
-				g.declareVar(fn.Name.Value+"_result_err", errType, false, false)
+				g.fnResultOkTypes[fn.Name.Value] = okType
+				g.fnResultErrTypes[fn.Name.Value] = errType
 			}
 			g.exitScope()
+		}
+	}
+	for _, stmt := range program.Statements {
+		if impl, ok := stmt.(*ast.ImplStatement); ok {
+			typeName := impl.Type.Value
+			for _, method := range impl.Methods {
+				retType := g.typeToC(method.ReturnType)
+				g.fnReturnTypes[typeName+"_"+method.Name.Value] = retType
+			}
+		}
+	}
+	for _, stmt := range program.Statements {
+		if cls, ok := stmt.(*ast.ClassStatement); ok {
+			typeName := cls.Name.Value
+			for _, method := range cls.Methods {
+				retType := g.typeToC(method.ReturnType)
+				g.fnReturnTypes[typeName+"_"+method.Name.Value] = retType
+			}
 		}
 	}
 }
@@ -369,6 +393,21 @@ func (g *CGenerator) inferResultPayloadTypes(body *ast.BlockStatement) (okType, 
 				errType = g.resolveType(errExpr.Value)
 			}
 		}
+		if es, ok := stmt.(*ast.ExpressionStatement); ok {
+			if ifExpr, ok := es.Expression.(*ast.IfExpression); ok {
+				if ok2, _ := g.inferResultPayloadTypes(ifExpr.Consequence); ok2 != "carv_int" {
+					okType = ok2
+				}
+				if ifExpr.Alternative != nil {
+					if ok2, _ := g.inferResultPayloadTypes(ifExpr.Alternative); ok2 != "carv_int" {
+						okType = ok2
+					}
+					if err2, _ := g.inferResultPayloadTypes(ifExpr.Alternative); err2 != "carv_string" {
+						errType = err2
+					}
+				}
+			}
+		}
 	}
 	return
 }
@@ -376,6 +415,7 @@ func (g *CGenerator) inferResultPayloadTypes(body *ast.BlockStatement) (okType, 
 func (g *CGenerator) Generate(program *ast.Program) string {
 	g.collectBuiltinModuleAliases(program)
 	g.collectFunctionReturnTypes(program)
+	g.collectClassFields(program)
 	g.collectInterfacesAndImpls(program)
 	g.collectAsyncFunctions(program)
 	g.emitRuntime()
@@ -602,6 +642,14 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("    char* copy = (char*)carv_arena_alloc(len);")
 	g.writeln("    memcpy(copy, s, len);")
 	g.writeln("    return (carv_string){copy, len - 1, true};")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("static carv_string carv_string_char_at(carv_string s, carv_int idx) {")
+	g.writeln("    if (idx < 0 || idx >= (carv_int)s.len) return (carv_string){NULL, 0, false};")
+	g.writeln("    char* buf = (char*)carv_arena_alloc(2);")
+	g.writeln("    buf[0] = s.data[idx];")
+	g.writeln("    buf[1] = '\\0';")
+	g.writeln("    return (carv_string){buf, 1, true};")
 	g.writeln("}")
 	g.writeln("")
 	g.writeln("typedef struct { carv_int* data; carv_int len; carv_int cap; } carv_int_array;")
@@ -911,6 +959,42 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("    memcpy(result, a.data, a.len);")
 	g.writeln("    memcpy(result + a.len, b.data, b.len + 1);")
 	g.writeln("    return carv_string_own(result, total);")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("carv_string carv_int_array_to_string(carv_int_array arr) {")
+	g.writeln("    carv_string out = carv_string_lit(\"[\");")
+	g.writeln("    for (carv_int i = 0; i < arr.len; i++) {")
+	g.writeln("        if (i > 0) out = carv_concat(out, carv_string_lit(\", \"));")
+	g.writeln("        out = carv_concat(out, carv_int_to_string(arr.data[i]));")
+	g.writeln("    }")
+	g.writeln("    return carv_concat(out, carv_string_lit(\"]\"));")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("carv_string carv_float_array_to_string(carv_float_array arr) {")
+	g.writeln("    carv_string out = carv_string_lit(\"[\");")
+	g.writeln("    for (carv_int i = 0; i < arr.len; i++) {")
+	g.writeln("        if (i > 0) out = carv_concat(out, carv_string_lit(\", \"));")
+	g.writeln("        out = carv_concat(out, carv_float_to_string(arr.data[i]));")
+	g.writeln("    }")
+	g.writeln("    return carv_concat(out, carv_string_lit(\"]\"));")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("carv_string carv_string_array_to_string(carv_string_array arr) {")
+	g.writeln("    carv_string out = carv_string_lit(\"[\");")
+	g.writeln("    for (carv_int i = 0; i < arr.len; i++) {")
+	g.writeln("        if (i > 0) out = carv_concat(out, carv_string_lit(\", \"));")
+	g.writeln("        out = carv_concat(out, arr.data[i]);")
+	g.writeln("    }")
+	g.writeln("    return carv_concat(out, carv_string_lit(\"]\"));")
+	g.writeln("}")
+	g.writeln("")
+	g.writeln("carv_string carv_bool_array_to_string(carv_bool_array arr) {")
+	g.writeln("    carv_string out = carv_string_lit(\"[\");")
+	g.writeln("    for (carv_int i = 0; i < arr.len; i++) {")
+	g.writeln("        if (i > 0) out = carv_concat(out, carv_string_lit(\", \"));")
+	g.writeln("        out = carv_concat(out, arr.data[i] ? carv_string_lit(\"true\") : carv_string_lit(\"false\"));")
+	g.writeln("    }")
+	g.writeln("    return carv_concat(out, carv_string_lit(\"]\"));")
 	g.writeln("}")
 	g.writeln("")
 
@@ -1964,12 +2048,21 @@ func (g *CGenerator) generateForInStatement(s *ast.ForInStatement) {
 	idxVar := fmt.Sprintf("__idx_%d", g.tempCounter)
 	g.tempCounter++
 
-	g.writeln(fmt.Sprintf("for (carv_int %s = 0; %s < %s.len; %s++) {", idxVar, idxVar, iterableExpr, idxVar))
-	g.indent++
-	g.enterScope()
-
 	elemType := g.inferArrayElemType(s.Iterable)
-	g.writeln(fmt.Sprintf("%s %s = %s.data[%s];", elemType, iterName, iterableExpr, idxVar))
+
+	if _, ok := s.Iterable.(*ast.StringLiteral); ok {
+		g.writeln(fmt.Sprintf("for (carv_int %s = 0; %s < %s.len; %s++) {", idxVar, idxVar, iterableExpr, idxVar))
+		g.indent++
+		g.enterScope()
+		g.writeln(fmt.Sprintf("carv_string %s = carv_string_char_at(%s, %s);", iterName, iterableExpr, idxVar))
+		g.declareVar(iterName, "carv_string", true, true)
+	} else {
+		g.writeln(fmt.Sprintf("for (carv_int %s = 0; %s < %s.len; %s++) {", idxVar, idxVar, iterableExpr, idxVar))
+		g.indent++
+		g.enterScope()
+		g.writeln(fmt.Sprintf("%s %s = %s.data[%s];", elemType, iterName, iterableExpr, idxVar))
+		g.declareVar(iterName, elemType, true, true)
+	}
 
 	for _, stmt := range s.Body.Statements {
 		g.generateStatement(stmt)
@@ -2114,6 +2207,10 @@ func (g *CGenerator) generateExpression(expr ast.Expression) string {
 		return g.generateInterpolatedString(e)
 	case *ast.BorrowExpression:
 		inner := g.generateExpression(e.Value)
+		innerType := g.resolveType(e.Value)
+		if strings.HasSuffix(innerType, "*") {
+			return inner
+		}
 		return "(&" + inner + ")"
 	case *ast.DerefExpression:
 		inner := g.generateExpression(e.Value)
@@ -2742,7 +2839,18 @@ func (g *CGenerator) convertToString(expr ast.Expression) string {
 		return fmt.Sprintf("carv_float_to_string(%s)", exprStr)
 	case "carv_bool":
 		return fmt.Sprintf("carv_bool_to_string(%s)", exprStr)
+	case "carv_int_array":
+		return fmt.Sprintf("carv_int_array_to_string(%s)", exprStr)
+	case "carv_float_array":
+		return fmt.Sprintf("carv_float_array_to_string(%s)", exprStr)
+	case "carv_string_array":
+		return fmt.Sprintf("carv_string_array_to_string(%s)", exprStr)
+	case "carv_bool_array":
+		return fmt.Sprintf("carv_bool_array_to_string(%s)", exprStr)
 	default:
+		if strings.HasSuffix(exprType, "_array") {
+			return fmt.Sprintf("carv_int_array_to_string(%s)", exprStr)
+		}
 		return fmt.Sprintf("carv_int_to_string((carv_int)%s)", exprStr)
 	}
 }
@@ -2753,6 +2861,8 @@ func (g *CGenerator) inferArrayElemType(expr ast.Expression) string {
 		if len(e.Elements) > 0 {
 			return g.resolveType(e.Elements[0])
 		}
+	case *ast.StringLiteral:
+		return "carv_string"
 	case *ast.Identifier:
 		return "carv_int"
 	}
@@ -2919,6 +3029,15 @@ func (g *CGenerator) inferExprType(expr ast.Expression) string {
 			}
 		}
 		return "void*"
+	case *ast.MemberExpression:
+		objType := g.inferExprType(e.Object)
+		baseType := strings.TrimPrefix(objType, "const ")
+		baseType = strings.TrimSuffix(baseType, "*")
+		if fields, ok := g.classFields[baseType]; ok {
+			if ft, exists := fields[e.Member.Value]; exists {
+				return ft
+			}
+		}
 	}
 	return "carv_int"
 }
@@ -2943,6 +3062,15 @@ func (g *CGenerator) inferCallType(e *ast.CallExpression) string {
 			return "carv_int"
 		case "len":
 			return "carv_int"
+		}
+	}
+	if member, ok := e.Function.(*ast.MemberExpression); ok {
+		objType := g.inferExprType(member.Object)
+		baseType := strings.TrimPrefix(objType, "const ")
+		baseType = strings.TrimSuffix(baseType, "*")
+		key := baseType + "_" + member.Member.Value
+		if retType, exists := g.fnReturnTypes[key]; exists {
+			return retType
 		}
 	}
 	return "carv_int"
@@ -3003,11 +3131,17 @@ func (g *CGenerator) inferResultOkType(expr ast.Expression) string {
 		return g.resolveType(e.Value)
 	case *ast.CallExpression:
 		if ident, ok := e.Function.(*ast.Identifier); ok {
+			if t, exists := g.fnResultOkTypes[ident.Value]; exists {
+				return t
+			}
 			if v := g.lookupVar(ident.Value + "_result_ok"); v != nil {
 				return v.CType
 			}
 		}
 	case *ast.Identifier:
+		if t, exists := g.fnResultOkTypes[e.Value]; exists {
+			return t
+		}
 		if v := g.lookupVar(e.Value + "_result_ok"); v != nil {
 			return v.CType
 		}
@@ -3092,11 +3226,17 @@ func (g *CGenerator) inferResultErrType(expr ast.Expression) string {
 		return g.resolveType(e.Value)
 	case *ast.CallExpression:
 		if ident, ok := e.Function.(*ast.Identifier); ok {
+			if t, exists := g.fnResultErrTypes[ident.Value]; exists {
+				return t
+			}
 			if v := g.lookupVar(ident.Value + "_result_err"); v != nil {
 				return v.CType
 			}
 		}
 	case *ast.Identifier:
+		if t, exists := g.fnResultErrTypes[e.Value]; exists {
+			return t
+		}
 		if v := g.lookupVar(e.Value + "_result_err"); v != nil {
 			return v.CType
 		}
@@ -3112,6 +3252,18 @@ func (g *CGenerator) errFieldForType(cType string) string {
 		return "err_str"
 	default:
 		return "err_str"
+	}
+}
+
+func (g *CGenerator) collectClassFields(program *ast.Program) {
+	for _, stmt := range program.Statements {
+		if cls, ok := stmt.(*ast.ClassStatement); ok {
+			fields := make(map[string]string)
+			for _, f := range cls.Fields {
+				fields[f.Name.Value] = g.typeToC(f.Type)
+			}
+			g.classFields[cls.Name.Value] = fields
+		}
 	}
 }
 
