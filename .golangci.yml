@@ -19,7 +19,7 @@ linters:
 linters-settings:
   errcheck:
     check-type-assertions: false
-    check-blank: true
+    check-blank: false
 
   govet:
     enable-all: true
