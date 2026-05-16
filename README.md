@@ -152,6 +152,22 @@ Then:
 
 For ARM targets, you need `arm-none-eabi-gcc` installed.
 
+## Quick Install
+
+No need to clone or build — grab a pre-built binary directly:
+
+```bash
+# Install latest release
+curl -fsSL https://raw.githubusercontent.com/dev-dami/carv/main/scripts/install.sh | bash
+
+# Install a specific version
+curl -fsSL https://raw.githubusercontent.com/dev-dami/carv/main/scripts/install.sh | bash -s -- v0.6.0
+```
+
+The script auto-detects your OS/architecture, downloads the matching binary from GitHub releases, and installs it to `/usr/local/bin` (or `~/.local/bin`).
+
+Supported platforms: **Linux** (amd64, arm64), **macOS** (amd64, arm64), **Windows** (amd64).
+
 ---
 
 ## Where Things Stand
