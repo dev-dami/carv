@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/dev-dami/carv/pkg/codegen"
+	"github.com/dev-dami/carv/pkg/lsp"
 	"github.com/dev-dami/carv/pkg/lexer"
 	"github.com/dev-dami/carv/pkg/module"
 	"github.com/dev-dami/carv/pkg/parser"
@@ -61,6 +62,11 @@ func main() {
 		installPackages()
 	case "repl":
 		runREPL()
+	case "lsp":
+		if err := runLSP(); err != nil {
+			fmt.Fprintf(os.Stderr, "lsp server error: %s\n", err)
+			os.Exit(1)
+		}
 	default:
 		if strings.HasSuffix(os.Args[1], ".carv") {
 			buildFile(os.Args[1], "")
@@ -85,6 +91,7 @@ Commands:
   remove <name>   Remove a dependency from carv.toml
   install         Install all dependencies from carv.toml
   repl            Start interactive REPL
+  lsp             Start language server for editor integration
   version         Print version info
   help            Show this help
 
@@ -588,4 +595,8 @@ func copyFile(src, dst string) error {
 
 	_, err = io.Copy(out, in)
 	return err
+}
+
+func runLSP() error {
+	return lsp.RunServer()
 }
