@@ -1,7 +1,6 @@
 package lsp
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -9,187 +8,213 @@ import (
 	"github.com/dev-dami/carv/pkg/lexer"
 	"github.com/dev-dami/carv/pkg/parser"
 	"github.com/dev-dami/carv/pkg/types"
-	"github.com/owenrumney/go-lsp/lsp"
-	"github.com/owenrumney/go-lsp/server"
+	"github.com/opa-oz/glsp"
+	protocol "github.com/opa-oz/glsp/protocol_3_16"
+	"github.com/opa-oz/glsp/server"
 )
 
 const serverName = "carv-lsp"
 const serverVersion = "0.1.0"
 
-type Handler struct {
-	documents map[lsp.DocumentURI]string
+var handler protocol.Handler
+
+type serverState struct {
+	documents map[protocol.DocumentUri]string
 	mu        sync.RWMutex
-	client    *server.Client
 }
 
-func NewHandler() *Handler {
-	return &Handler{
-		documents: make(map[lsp.DocumentURI]string),
+var state *serverState
+
+func RunServer() {
+	state = &serverState{
+		documents: make(map[protocol.DocumentUri]string),
 	}
+
+	handler = protocol.Handler{
+		Initialize:  initialize,
+		Initialized: initialized,
+		Shutdown:    shutdown,
+		SetTrace:    setTrace,
+	}
+
+	handler.TextDocumentDidOpen = textDocumentDidOpen
+	handler.TextDocumentDidChange = textDocumentDidChange
+	handler.TextDocumentDidClose = textDocumentDidClose
+	handler.TextDocumentHover = textDocumentHover
+	handler.TextDocumentDefinition = textDocumentDefinition
+	handler.TextDocumentCompletion = textDocumentCompletion
+
+	srv := server.NewServer(&handler, serverName, false)
+	srv.RunStdio()
 }
 
-func (h *Handler) SetClient(client *server.Client) {
-	h.client = client
-}
+func initialize(context *glsp.Context, params *protocol.InitializeParams) (any, error) {
+	capabilities := handler.CreateServerCapabilities()
+	capabilities.HoverProvider = true
+	capabilities.DefinitionProvider = true
+	capabilities.CompletionProvider = &protocol.CompletionOptions{
+		TriggerCharacters: []string{"."},
+	}
 
-func (h *Handler) Initialize(ctx context.Context, params *lsp.InitializeParams) (*lsp.InitializeResult, error) {
-	trueVal := true
-	return &lsp.InitializeResult{
-		Capabilities: lsp.ServerCapabilities{
-			TextDocumentSync: &lsp.TextDocumentSyncOptions{
-				OpenClose: &trueVal,
-				Change:    lsp.SyncFull,
-			},
-			HoverProvider:      &trueVal,
-			DefinitionProvider: &trueVal,
-			CompletionProvider: &lsp.CompletionOptions{
-				TriggerCharacters: []string{"."},
-			},
-		},
-		ServerInfo: &lsp.ServerInfo{
+	v := serverVersion
+	return protocol.InitializeResult{
+		Capabilities: capabilities,
+		ServerInfo: &protocol.InitializeResultServerInfo{
 			Name:    serverName,
-			Version: serverVersion,
+			Version: &v,
 		},
 	}, nil
 }
 
-func (h *Handler) Initialized(ctx context.Context, params *lsp.InitializedParams) error {
+func initialized(context *glsp.Context, params *protocol.InitializedParams) error {
 	return nil
 }
 
-func (h *Handler) Shutdown(ctx context.Context) error {
+func shutdown(context *glsp.Context) error {
 	return nil
 }
 
-func (h *Handler) DidOpen(ctx context.Context, params *lsp.DidOpenTextDocumentParams) error {
-	h.mu.Lock()
-	h.documents[params.TextDocument.URI] = params.TextDocument.Text
-	h.mu.Unlock()
-
-	h.publishDiagnostics(ctx, params.TextDocument.URI, params.TextDocument.Text)
+func setTrace(context *glsp.Context, params *protocol.SetTraceParams) error {
+	protocol.SetTraceValue(params.Value)
 	return nil
 }
 
-func (h *Handler) DidChange(ctx context.Context, params *lsp.DidChangeTextDocumentParams) error {
-	h.mu.Lock()
+func textDocumentDidOpen(context *glsp.Context, params *protocol.DidOpenTextDocumentParams) error {
+	state.mu.Lock()
+	state.documents[params.TextDocument.URI] = params.TextDocument.Text
+	state.mu.Unlock()
+
+	publishDiagnostics(context, params.TextDocument.URI, params.TextDocument.Text)
+	return nil
+}
+
+func textDocumentDidChange(context *glsp.Context, params *protocol.DidChangeTextDocumentParams) error {
+	state.mu.Lock()
 	if len(params.ContentChanges) > 0 {
-		h.documents[params.TextDocument.URI] = params.ContentChanges[0].Text
+		if whole, ok := params.ContentChanges[0].(protocol.TextDocumentContentChangeEventWhole); ok {
+			state.documents[params.TextDocument.URI] = whole.Text
+		}
 	}
-	h.mu.Unlock()
+	state.mu.Unlock()
 
-	h.mu.RLock()
-	content := h.documents[params.TextDocument.URI]
-	h.mu.RUnlock()
+	state.mu.RLock()
+	content := state.documents[params.TextDocument.URI]
+	state.mu.RUnlock()
 
-	h.publishDiagnostics(ctx, params.TextDocument.URI, content)
+	publishDiagnostics(context, params.TextDocument.URI, content)
 	return nil
 }
 
-func (h *Handler) DidClose(ctx context.Context, params *lsp.DidCloseTextDocumentParams) error {
-	h.mu.Lock()
-	delete(h.documents, params.TextDocument.URI)
-	h.mu.Unlock()
+func textDocumentDidClose(context *glsp.Context, params *protocol.DidCloseTextDocumentParams) error {
+	state.mu.Lock()
+	delete(state.documents, params.TextDocument.URI)
+	state.mu.Unlock()
 	return nil
 }
 
-func (h *Handler) Hover(ctx context.Context, params *lsp.HoverParams) (*lsp.Hover, error) {
-	h.mu.RLock()
-	content := h.documents[params.TextDocument.URI]
-	h.mu.RUnlock()
+func textDocumentHover(context *glsp.Context, params *protocol.HoverParams) (*protocol.Hover, error) {
+	state.mu.RLock()
+	content := state.documents[params.TextDocument.URI]
+	state.mu.RUnlock()
 	if content == "" {
 		return nil, nil
 	}
 
-	pos := lspPosToLineCol(params.Position)
+	line := int(params.Position.Line) + 1
+	col := int(params.Position.Character) + 1
 	info := analyzeSource(content)
 	if info == nil {
 		return nil, nil
 	}
 
-	sym := info.symbolAt(pos.line, pos.col)
+	sym := info.symbolAt(line, col)
 	if sym == nil {
 		return nil, nil
 	}
 
-	return &lsp.Hover{
-		Contents: lsp.MarkupContent{
-			Kind:  lsp.Markdown,
+	return &protocol.Hover{
+		Contents: protocol.MarkupContent{
+			Kind:  protocol.MarkupKindMarkdown,
 			Value: fmt.Sprintf("**%s**\n\nType: `%s`", sym.Name, sym.TypeStr),
 		},
 	}, nil
 }
 
-func (h *Handler) Definition(ctx context.Context, params *lsp.DefinitionParams) ([]lsp.Location, error) {
-	h.mu.RLock()
-	content := h.documents[params.TextDocument.URI]
-	h.mu.RUnlock()
+func textDocumentDefinition(context *glsp.Context, params *protocol.DefinitionParams) (any, error) {
+	state.mu.RLock()
+	content := state.documents[params.TextDocument.URI]
+	state.mu.RUnlock()
 	if content == "" {
 		return nil, nil
 	}
 
-	pos := lspPosToLineCol(params.Position)
+	line := int(params.Position.Line) + 1
+	col := int(params.Position.Character) + 1
 	info := analyzeSource(content)
 	if info == nil {
 		return nil, nil
 	}
 
-	sym := info.symbolAt(pos.line, pos.col)
+	sym := info.symbolAt(line, col)
 	if sym == nil || sym.DefLine == 0 {
 		return nil, nil
 	}
 
-	return []lsp.Location{{
+	loc := protocol.Location{
 		URI: params.TextDocument.URI,
-		Range: lsp.Range{
-			Start: lsp.Position{Line: sym.DefLine - 1, Character: sym.DefCol - 1},
-			End:   lsp.Position{Line: sym.DefLine - 1, Character: sym.DefCol - 1 + len(sym.Name)},
+		Range: protocol.Range{
+			Start: protocol.Position{Line: protocol.UInteger(sym.DefLine - 1), Character: protocol.UInteger(sym.DefCol - 1)},
+			End:   protocol.Position{Line: protocol.UInteger(sym.DefLine - 1), Character: protocol.UInteger(sym.DefCol - 1 + len(sym.Name))},
 		},
-	}}, nil
+	}
+	return &loc, nil
 }
 
-func (h *Handler) Completion(ctx context.Context, params *lsp.CompletionParams) (*lsp.CompletionList, error) {
-	h.mu.RLock()
-	content := h.documents[params.TextDocument.URI]
-	h.mu.RUnlock()
+func textDocumentCompletion(context *glsp.Context, params *protocol.CompletionParams) (any, error) {
+	state.mu.RLock()
+	content := state.documents[params.TextDocument.URI]
+	state.mu.RUnlock()
 	if content == "" {
-		return &lsp.CompletionList{}, nil
+		return []protocol.CompletionItem{}, nil
 	}
 
 	info := analyzeSource(content)
 	if info == nil {
-		return &lsp.CompletionList{}, nil
+		return []protocol.CompletionItem{}, nil
 	}
 
-	var items []lsp.CompletionItem
+	var items []protocol.CompletionItem
 	for name, sym := range info.symbols {
-		kind := lsp.CompletionItemKindVariable
+		kind := protocol.CompletionItemKindVariable
 		if strings.Contains(sym.TypeStr, "fn") || strings.Contains(sym.TypeStr, "Function") {
-			kind = lsp.CompletionItemKindFunction
+			kind = protocol.CompletionItemKindFunction
 		} else if strings.Contains(sym.TypeStr, "class") || strings.Contains(sym.TypeStr, "Class") {
-			kind = lsp.CompletionItemKindClass
+			kind = protocol.CompletionItemKindClass
 		} else if strings.Contains(sym.TypeStr, "interface") || strings.Contains(sym.TypeStr, "Interface") {
-			kind = lsp.CompletionItemKindInterface
+			kind = protocol.CompletionItemKindInterface
 		}
 
-		k := kind
-		items = append(items, lsp.CompletionItem{
+		detail := sym.TypeStr
+		insert := name
+		items = append(items, protocol.CompletionItem{
 			Label:      name,
-			Kind:       &k,
-			Detail:     sym.TypeStr,
-			InsertText: name,
+			Kind:       &kind,
+			Detail:     &detail,
+			InsertText: &insert,
 		})
 	}
 
 	for _, kw := range carvKeywords {
-		k := lsp.CompletionItemKindKeyword
-		items = append(items, lsp.CompletionItem{
+		k := protocol.CompletionItemKindKeyword
+		kw := kw
+		items = append(items, protocol.CompletionItem{
 			Label:      kw,
 			Kind:       &k,
-			InsertText: kw,
+			InsertText: &kw,
 		})
 	}
 
-	return &lsp.CompletionList{Items: items}, nil
+	return items, nil
 }
 
 var carvKeywords = []string{
@@ -214,7 +239,7 @@ type symbolEntry struct {
 type sourceInfo struct {
 	symbols     map[string]*symbolEntry
 	uses        []symbolEntry
-	diagnostics []lsp.Diagnostic
+	diagnostics []protocol.Diagnostic
 }
 
 func (si *sourceInfo) symbolAt(line, col int) *symbolEntry {
@@ -243,9 +268,10 @@ func analyzeSource(src string) *sourceInfo {
 	}
 
 	for _, e := range p.Errors() {
-		info.diagnostics = append(info.diagnostics, lsp.Diagnostic{
-			Severity: severityPtr(lsp.SeverityError),
-			Message:  e,
+		msg := e
+		info.diagnostics = append(info.diagnostics, protocol.Diagnostic{
+			Severity: ptrSeverity(protocol.DiagnosticSeverityError),
+			Message:  msg,
 		})
 	}
 
@@ -253,23 +279,25 @@ func analyzeSource(src string) *sourceInfo {
 	checker.Check(program)
 
 	for _, iss := range checker.ErrorIssues() {
-		info.diagnostics = append(info.diagnostics, lsp.Diagnostic{
-			Severity: severityPtr(lsp.SeverityError),
-			Message:  iss.Message,
-			Range: lsp.Range{
-				Start: lsp.Position{Line: iss.Line - 1, Character: iss.Column - 1},
-				End:   lsp.Position{Line: iss.Line - 1, Character: iss.Column},
+		msg := iss.Message
+		info.diagnostics = append(info.diagnostics, protocol.Diagnostic{
+			Severity: ptrSeverity(protocol.DiagnosticSeverityError),
+			Message:  msg,
+			Range: protocol.Range{
+				Start: protocol.Position{Line: protocol.UInteger(iss.Line - 1), Character: protocol.UInteger(iss.Column - 1)},
+				End:   protocol.Position{Line: protocol.UInteger(iss.Line - 1), Character: protocol.UInteger(iss.Column)},
 			},
 		})
 	}
 
 	for _, iss := range checker.WarningIssues() {
-		info.diagnostics = append(info.diagnostics, lsp.Diagnostic{
-			Severity: severityPtr(lsp.SeverityWarning),
-			Message:  iss.Message,
-			Range: lsp.Range{
-				Start: lsp.Position{Line: iss.Line - 1, Character: iss.Column - 1},
-				End:   lsp.Position{Line: iss.Line - 1, Character: iss.Column},
+		msg := iss.Message
+		info.diagnostics = append(info.diagnostics, protocol.Diagnostic{
+			Severity: ptrSeverity(protocol.DiagnosticSeverityWarning),
+			Message:  msg,
+			Range: protocol.Range{
+				Start: protocol.Position{Line: protocol.UInteger(iss.Line - 1), Character: protocol.UInteger(iss.Column - 1)},
+				End:   protocol.Position{Line: protocol.UInteger(iss.Line - 1), Character: protocol.UInteger(iss.Column)},
 			},
 		})
 	}
@@ -286,33 +314,20 @@ func analyzeSource(src string) *sourceInfo {
 	return info
 }
 
-func (h *Handler) publishDiagnostics(ctx context.Context, uri lsp.DocumentURI, content string) {
-	if h.client == nil {
-		return
-	}
+func publishDiagnostics(context *glsp.Context, uri protocol.DocumentUri, content string) {
 	info := analyzeSource(content)
 
 	diags := info.diagnostics
 	if diags == nil {
-		diags = []lsp.Diagnostic{}
+		diags = []protocol.Diagnostic{}
 	}
 
-	_ = h.client.PublishDiagnostics(ctx, &lsp.PublishDiagnosticsParams{
+	context.Notify("textDocument/publishDiagnostics", protocol.PublishDiagnosticsParams{
 		URI:         uri,
 		Diagnostics: diags,
 	})
 }
 
-func RunServer() error {
-	h := NewHandler()
-	srv := server.NewServer(h)
-	return srv.Run(context.Background(), server.RunStdio())
-}
-
-func lspPosToLineCol(p lsp.Position) struct{ line, col int } {
-	return struct{ line, col int }{line: p.Line + 1, col: p.Character + 1}
-}
-
-func severityPtr(s lsp.DiagnosticSeverity) *lsp.DiagnosticSeverity {
+func ptrSeverity(s protocol.DiagnosticSeverity) *protocol.DiagnosticSeverity {
 	return &s
 }

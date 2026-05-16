@@ -63,10 +63,7 @@ func main() {
 	case "repl":
 		runREPL()
 	case "lsp":
-		if err := runLSP(); err != nil {
-			fmt.Fprintf(os.Stderr, "lsp server error: %s\n", err)
-			os.Exit(1)
-		}
+		runLSP()
 	default:
 		if strings.HasSuffix(os.Args[1], ".carv") {
 			buildFile(os.Args[1], "")
@@ -597,6 +594,6 @@ func copyFile(src, dst string) error {
 	return err
 }
 
-func runLSP() error {
-	return lsp.RunServer()
+func runLSP() {
+	lsp.RunServer()
 }
