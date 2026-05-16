@@ -356,32 +356,27 @@ func (r *Resolver) gitTags(url string) ([]string, error) {
 
 // LockFile generates a lock file from resolved dependencies.
 func (r *Resolver) LockFile() *module.LockFile {
+	seen := make(map[string]bool)
 	var packages []module.LockedPackage
-	r.collectLocked(r.resolved, &packages)
+	for _, dep := range r.resolved {
+		r.collectLockedOne(dep, &packages, seen)
+	}
 	return &module.LockFile{Packages: packages}
 }
 
-func (r *Resolver) collectLocked(resolved map[string]*ResolvedDep, out *[]module.LockedPackage) {
-	for _, dep := range resolved {
-		*out = append(*out, module.LockedPackage{
-			Name:     dep.Name,
-			Version:  dep.Version,
-			Source:   dep.Source,
-			Revision: dep.Revision,
-		})
-		r.collectLockedFlat(dep.Deps, out)
+func (r *Resolver) collectLockedOne(dep *ResolvedDep, out *[]module.LockedPackage, seen map[string]bool) {
+	if seen[dep.Name] {
+		return
 	}
-}
-
-func (r *Resolver) collectLockedFlat(deps []*ResolvedDep, out *[]module.LockedPackage) {
-	for _, dep := range deps {
-		*out = append(*out, module.LockedPackage{
-			Name:     dep.Name,
-			Version:  dep.Version,
-			Source:   dep.Source,
-			Revision: dep.Revision,
-		})
-		r.collectLockedFlat(dep.Deps, out)
+	seen[dep.Name] = true
+	*out = append(*out, module.LockedPackage{
+		Name:     dep.Name,
+		Version:  dep.Version,
+		Source:   dep.Source,
+		Revision: dep.Revision,
+	})
+	for _, d := range dep.Deps {
+		r.collectLockedOne(d, out, seen)
 	}
 }
 
