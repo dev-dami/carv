@@ -79,11 +79,6 @@ func (r *Resolver) resolveOne(name string, dep module.Dependency, depth int) (*R
 		return existing, nil
 	}
 
-	// If lock file has an exact revision and we're not forcing update, use it.
-	if locked, ok := r.locked[name]; ok && dep.Version == "" && locked.Revision != "" {
-		// Use locked revision.
-	}
-
 	var resolved *ResolvedDep
 	var err error
 
@@ -312,9 +307,7 @@ func (r *Resolver) gitCheckout(dir, ref string) error {
 	cmd := exec.Command("git", "-C", dir, "fetch", "--depth", "1", "origin", ref)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		// Ref might already be fetched.
-	}
+	_ = cmd.Run()
 
 	cmd = exec.Command("git", "-C", dir, "checkout", ref)
 	cmd.Stdout = os.Stdout
