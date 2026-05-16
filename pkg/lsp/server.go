@@ -283,7 +283,6 @@ func analyzeSource(src string) *sourceInfo {
 		}
 	}
 
-	_ = program
 	return info
 }
 
