@@ -1,0 +1,89 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Carv",
+  "scopeName": "source.carv",
+  "fileTypes": ["carv"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#chars" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#operators" },
+    { "include": "#functions" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.carv",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.carv",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        { "name": "constant.character.escape.carv", "match": "\\\\." }
+      ]
+    },
+    "chars": {
+      "name": "string.quoted.single.carv",
+      "match": "'.'"
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.float.carv", "match": "\\b\\d+\\.\\d+\\b" },
+        { "name": "constant.numeric.integer.carv", "match": "\\b\\d+\\b" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.carv",
+          "match": "\\b(if|else|for|in|while|loop|return|break|continue|match|try)\\b"
+        },
+        {
+          "name": "keyword.declaration.carv",
+          "match": "\\b(fn|let|mut|const|class|interface|impl|static|pub|priv)\\b"
+        },
+        {
+          "name": "keyword.other.carv",
+          "match": "\\b(async|await|spawn|new|as|self|super|require|volatile|packed|unsafe|asm|is)\\b"
+        },
+        {
+          "name": "constant.language.carv",
+          "match": "\\b(true|false|nil|Ok|Err)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.carv",
+          "match": "\\b(u8|u16|u32|u64|i8|i16|i32|i64|f32|f64|usize|isize|void|int|bool|string|char|any)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.arithmetic.carv", "match": "[+\\-*/%=]" },
+        { "name": "keyword.operator.comparison.carv", "match": "(==|!=|<=|>=|<|>)" },
+        { "name": "keyword.operator.logical.carv", "match": "(&&|\\|\\||!)" },
+        { "name": "keyword.operator.assignment.carv", "match": "(\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|=)" },
+        { "name": "keyword.operator.arrow.carv", "match": "(->|=>)" }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.carv",
+          "match": "\\bfn\\s+([a-zA-Z_]\\w*)"
+        }
+      ]
+    }
+  }
+}

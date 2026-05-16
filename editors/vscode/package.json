@@ -1,0 +1,62 @@
+{
+  "name": "carv-lang",
+  "displayName": "Carv Language Support",
+  "description": "Language support for Carv - a memory-safe language for embedded systems",
+  "version": "0.1.0",
+  "publisher": "dev-dami",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dev-dami/carv"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:carv"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "carv",
+        "aliases": ["Carv", "carv"],
+        "extensions": [".carv"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "carv",
+        "scopeName": "source.carv",
+        "path": "./syntaxes/carv.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Carv Language Server",
+      "properties": {
+        "carv.languageServer.path": {
+          "type": "string",
+          "default": "carv",
+          "description": "Path to the carv language server binary"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
+  }
+}
