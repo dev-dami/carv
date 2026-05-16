@@ -2009,7 +2009,7 @@ func (g *CGenerator) generateBlockStatement(s *ast.BlockStatement) {
 }
 
 // generateUnsafeStatement emits the body of an `unsafe { ... }` block.
-// The contents are wrapped in a C block to limit scope, matching block statement behaviour.
+// The contents are wrapped in a C block to limit scope, matching block statement behavior.
 func (g *CGenerator) generateUnsafeStatement(s *ast.UnsafeStatement) {
 	g.writeln("/* unsafe */")
 	g.writeln("{")
