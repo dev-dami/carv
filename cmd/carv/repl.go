@@ -123,6 +123,11 @@ func runREPL() {
 	}
 }
 
+func isPrintCall(input string) bool {
+	trimmed := strings.TrimSpace(input)
+	return strings.HasPrefix(trimmed, "print(") || strings.HasPrefix(trimmed, "println(")
+}
+
 func isAssignmentExpr(input string) bool {
 	trimmed := strings.TrimSpace(input)
 	if strings.HasSuffix(trimmed, ";") {
@@ -296,6 +301,11 @@ func evalREPL(line *liner.State, input string, sessionDecls *strings.Builder) {
 	if !hasMain && !strings.Contains(input, "fn ") && !strings.Contains(input, "class ") && !strings.Contains(input, "interface ") {
 		if isAssignmentExpr(input) {
 			src = input + ";"
+		} else if isPrintCall(input) || strings.HasSuffix(strings.TrimSpace(input), ";") {
+			src = input
+			if !strings.HasSuffix(strings.TrimSpace(input), ";") {
+				src = input + ";"
+			}
 		} else {
 			src = "println(" + input + ");"
 		}
