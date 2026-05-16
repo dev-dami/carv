@@ -135,13 +135,13 @@ version = "1.0.0"
 	}
 
 	// Save and reload.
-	if err := module.SaveLock(dir, lf); err != nil {
+	if err = module.SaveLock(dir, lf); err != nil {
 		t.Fatal(err)
 	}
 
-	loaded, err := module.LoadLock(dir)
-	if err != nil {
-		t.Fatal(err)
+	loaded, lerr := module.LoadLock(dir)
+	if lerr != nil {
+		t.Fatal(lerr)
 	}
 	if len(loaded.Packages) != 1 {
 		t.Fatalf("expected 1 loaded package, got %d", len(loaded.Packages))
