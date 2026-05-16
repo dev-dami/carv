@@ -30,7 +30,7 @@ error() { echo -e "${RED}[error]${NC} $*" >&2; }
 VERSION="${1:-}"
 if [ -z "$VERSION" ]; then
     info "No version specified — fetching latest release..."
-    VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\(.*\)".*/\1/')
+    VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=1" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\(.*\)".*/\1/')
     if [ -z "$VERSION" ]; then
         error "Could not determine latest release version."
         exit 1
