@@ -45,7 +45,7 @@ func RunServer() {
 	handler.TextDocumentCompletion = textDocumentCompletion
 
 	srv := server.NewServer(&handler, serverName, false)
-	srv.RunStdio()
+	_ = srv.RunStdio()
 }
 
 func initialize(context *glsp.Context, params *protocol.InitializeParams) (any, error) {

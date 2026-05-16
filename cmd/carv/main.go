@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/dev-dami/carv/pkg/codegen"
-	"github.com/dev-dami/carv/pkg/lsp"
 	"github.com/dev-dami/carv/pkg/lexer"
+	"github.com/dev-dami/carv/pkg/lsp"
 	"github.com/dev-dami/carv/pkg/module"
 	"github.com/dev-dami/carv/pkg/parser"
 	"github.com/dev-dami/carv/pkg/types"
