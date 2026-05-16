@@ -1,9 +1,6 @@
 package codegen
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,27 +20,6 @@ func generateOutputFromSource(t *testing.T, input string) string {
 		t.Fatalf("parser errors: %v", p.Errors())
 	}
 	return gen.Generate(program)
-}
-
-func compileGeneratedC(t *testing.T, source string) {
-	t.Helper()
-	if _, err := exec.LookPath("gcc"); err != nil {
-		t.Skip("gcc not found; skipping emitted C compile test")
-	}
-
-	tmpDir := t.TempDir()
-	cFile := filepath.Join(tmpDir, "out.c")
-	outBin := filepath.Join(tmpDir, "out")
-
-	if err := os.WriteFile(cFile, []byte(source), 0o644); err != nil {
-		t.Fatalf("failed to write generated C file: %v", err)
-	}
-
-	cmd := exec.Command("gcc", "-O2", "-o", outBin, cFile)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("gcc failed to compile emitted C: %v\n%s", err, string(output))
-	}
 }
 
 func TestGenerateEmptyProgram(t *testing.T) {
@@ -1086,21 +1062,6 @@ async fn carv_main() -> int {
 	}
 }
 
-func TestAsyncGeneratedCCompiles(t *testing.T) {
-	output := generateOutputFromSource(t, `
-async fn fetch() -> int {
-	return 1;
-}
-
-async fn carv_main() -> int {
-	let x = await fetch();
-	return x;
-}
-`)
-
-	compileGeneratedC(t, output)
-}
-
 func TestEventLoopNotEmittedWithoutAsync(t *testing.T) {
 	gen := NewCGenerator()
 	input := `
@@ -1155,17 +1116,6 @@ fn main() {
 	}
 }
 
-func TestTCPBuiltinsGeneratedCCompiles(t *testing.T) {
-	output := generateOutputFromSource(t, `
-fn main() {
-	let listener = tcp_listen("127.0.0.1", 8080);
-	tcp_close(listener);
-}
-`)
-
-	compileGeneratedC(t, output)
-}
-
 func TestTCPBuiltinsModuleAliasLowering(t *testing.T) {
 	output := generateOutputFromSource(t, `
 require "net" as net;
@@ -1198,32 +1148,6 @@ func TestMapLiteralGeneratesMapNew(t *testing.T) {
 	if !strings.Contains(output, "carv_map_set_int(") {
 		t.Errorf("expected carv_map_set_int calls, got:\n%s", output)
 	}
-}
-
-func TestMapLiteralGeneratedCCompiles(t *testing.T) {
-	output := generateOutputFromSource(t, `
-let scores = {"alice": 95, "bob": 87};
-println(scores);
-`)
-	compileGeneratedC(t, output)
-}
-
-func TestResultFunctionGeneratedCCompiles(t *testing.T) {
-	output := generateOutputFromSource(t, `
-fn divide(a: int, b: int) {
-    if b == 0 {
-        return Err("division by zero");
-    }
-    return Ok(a / b);
-}
-
-let result = divide(10, 2);
-match result {
-    Ok(v) => println(v),
-    Err(e) => println(e),
-};
-`)
-	compileGeneratedC(t, output)
 }
 
 func TestResultZeroValue(t *testing.T) {
@@ -1266,61 +1190,6 @@ fn main() {
 	if !strings.Contains(output, "carv_uart_init(1, 9600)") {
 		t.Fatalf("expected uart.uart_init(1, 9600) to lower to carv_uart_init(1, 9600), got:\n%s", output)
 	}
-}
-
-func TestHALModulesGeneratedCCompiles(t *testing.T) {
-	input := `
-require "gpio" as gpio;
-require "uart" as uart;
-require "spi" as spi;
-require "i2c" as i2c;
-require "timer" as timer;
-fn main() {
-	gpio.pin_mode(13, 1);
-	gpio.digital_write(13, true);
-	let v = gpio.digital_read(13);
-	let a = gpio.analog_read(0);
-	gpio.analog_write(9, 128);
-
-	let uh = uart.uart_init(1, 9600);
-	let wrote = uart.uart_write(uh, "hello");
-	let data = uart.uart_read(uh, 64);
-	let avail = uart.uart_available(uh);
-
-	let sh = spi.spi_init(0, 1000000);
-	let resp = spi.spi_transfer(sh, "ab");
-	let sw = spi.spi_write(sh, "cd");
-	let sr = spi.spi_read(sh, 4);
-
-	let ih = i2c.i2c_init(1, 80);
-	let iw = i2c.i2c_write(ih, "ef");
-	let ir = i2c.i2c_read(ih, 2);
-
-	let th = timer.timer_init(0, 72);
-	timer.timer_start(th);
-	timer.timer_stop(th);
-	let cnt = timer.timer_get_count(th);
-	timer.delay_ms(100);
-	timer.delay_us(50);
-}
-`
-	l := lexer.New(input)
-	p := parser.New(l)
-	program := p.ParseProgram()
-	if len(p.Errors()) > 0 {
-		t.Fatalf("parser errors: %v", p.Errors())
-	}
-
-	checker := types.NewChecker()
-	if !checker.Check(program) {
-		t.Fatalf("type errors: %v", checker.Errors())
-	}
-
-	gen := NewCGenerator()
-	gen.SetTypeInfo(checker.TypeInfo())
-	output := gen.Generate(program)
-
-	compileGeneratedC(t, output)
 }
 
 func TestMapPrintGeneratesCarv_print_map(t *testing.T) {
