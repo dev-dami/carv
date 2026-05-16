@@ -15,7 +15,8 @@ func (c *Checker) checkClassStatement(s *ast.ClassStatement) {
 	}
 
 	classType := &ClassType{Name: s.Name.Value, Fields: fields}
-	c.scope.Define(s.Name.Value, classType)
+	line, col := s.Pos()
+	c.scope.DefineWithPos(s.Name.Value, classType, line, col)
 
 	for _, method := range s.Methods {
 		prevScope := c.scope
@@ -25,16 +26,17 @@ func (c *Checker) checkClassStatement(s *ast.ClassStatement) {
 
 		switch method.Receiver {
 		case ast.RecvRef:
-			c.scope.Define("self", &RefType{Inner: classType, Mutable: false})
+			c.scope.DefineWithPos("self", &RefType{Inner: classType, Mutable: false}, 0, 0)
 		case ast.RecvMutRef:
-			c.scope.Define("self", &RefType{Inner: classType, Mutable: true})
+			c.scope.DefineWithPos("self", &RefType{Inner: classType, Mutable: true}, 0, 0)
 		case ast.RecvValue:
-			c.scope.Define("self", classType)
+			c.scope.DefineWithPos("self", classType, 0, 0)
 		}
 
 		paramTypes := c.resolveParameterTypes(method.Parameters)
 		for i, p := range method.Parameters {
-			c.scope.Define(p.Name.Value, paramTypes[i])
+			pl, pc := p.Pos()
+			c.scope.DefineWithPos(p.Name.Value, paramTypes[i], pl, pc)
 		}
 
 		if method.Body != nil {
@@ -64,7 +66,8 @@ func (c *Checker) checkInterfaceStatement(s *ast.InterfaceStatement) {
 	}
 
 	ifaceType := &InterfaceType{Name: s.Name.Value, Methods: methods}
-	c.scope.Define(s.Name.Value, ifaceType)
+	line, col := s.Pos()
+	c.scope.DefineWithPos(s.Name.Value, ifaceType, line, col)
 	c.ifaceReceivers[s.Name.Value] = receivers
 }
 
@@ -111,15 +114,16 @@ func (c *Checker) checkImplStatement(s *ast.ImplStatement) {
 
 		switch method.Receiver {
 		case ast.RecvRef:
-			c.scope.Define("self", &RefType{Inner: classType, Mutable: false})
+			c.scope.DefineWithPos("self", &RefType{Inner: classType, Mutable: false}, 0, 0)
 		case ast.RecvMutRef:
-			c.scope.Define("self", &RefType{Inner: classType, Mutable: true})
+			c.scope.DefineWithPos("self", &RefType{Inner: classType, Mutable: true}, 0, 0)
 		case ast.RecvValue:
-			c.scope.Define("self", classType)
+			c.scope.DefineWithPos("self", classType, 0, 0)
 		}
 
 		for i, p := range method.Parameters {
-			c.scope.Define(p.Name.Value, paramTypes[i])
+			pl, pc := p.Pos()
+			c.scope.DefineWithPos(p.Name.Value, paramTypes[i], pl, pc)
 		}
 
 		if method.Body != nil {

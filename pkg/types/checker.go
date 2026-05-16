@@ -13,6 +13,12 @@ type CheckIssue struct {
 	Message string
 }
 
+type SymbolInfo struct {
+	Type   Type
+	Line   int
+	Column int
+}
+
 type Checker struct {
 	errors         []CheckIssue
 	warnings       []CheckIssue
@@ -26,26 +32,40 @@ type Checker struct {
 }
 
 type Scope struct {
-	symbols map[string]Type
+	symbols map[string]SymbolInfo
 	parent  *Scope
 }
 
 func NewScope(parent *Scope) *Scope {
-	return &Scope{symbols: make(map[string]Type), parent: parent}
+	return &Scope{symbols: make(map[string]SymbolInfo), parent: parent}
 }
 
 func (s *Scope) Define(name string, t Type) {
-	s.symbols[name] = t
+	s.symbols[name] = SymbolInfo{Type: t}
+}
+
+func (s *Scope) DefineWithPos(name string, t Type, line, col int) {
+	s.symbols[name] = SymbolInfo{Type: t, Line: line, Column: col}
 }
 
 func (s *Scope) Lookup(name string) (Type, bool) {
-	if t, ok := s.symbols[name]; ok {
-		return t, true
+	if sym, ok := s.symbols[name]; ok {
+		return sym.Type, true
 	}
 	if s.parent != nil {
 		return s.parent.Lookup(name)
 	}
 	return nil, false
+}
+
+func (s *Scope) LookupSymbol(name string) (SymbolInfo, bool) {
+	if sym, ok := s.symbols[name]; ok {
+		return sym, true
+	}
+	if s.parent != nil {
+		return s.parent.LookupSymbol(name)
+	}
+	return SymbolInfo{}, false
 }
 
 func NewChecker() *Checker {
@@ -65,6 +85,23 @@ func NewChecker() *Checker {
 
 func (c *Checker) TypeInfo() map[ast.Expression]Type {
 	return c.nodeTypes
+}
+
+func (c *Checker) RootScope() *Scope {
+	return c.scope
+}
+
+func (s *Scope) AllSymbols() map[string]SymbolInfo {
+	result := make(map[string]SymbolInfo)
+	if s.parent != nil {
+		for k, v := range s.parent.AllSymbols() {
+			result[k] = v
+		}
+	}
+	for k, v := range s.symbols {
+		result[k] = v
+	}
+	return result
 }
 
 func (c *Checker) recordType(expr ast.Expression, t Type) Type {
@@ -270,10 +307,10 @@ func (c *Checker) bindCheckedValue(name string, declared ast.TypeExpr, valueType
 		if declType != nil && !c.isAssignable(declType, valueType) {
 			c.error(line, col, "cannot assign %s to %s", valueType.String(), declType.String())
 		}
-		c.scope.Define(name, declType)
+		c.scope.DefineWithPos(name, declType, line, col)
 		boundType = declType
 	} else {
-		c.scope.Define(name, valueType)
+		c.scope.DefineWithPos(name, valueType, line, col)
 	}
 	c.trackOwnership(name, boundType)
 	return boundType
@@ -344,7 +381,8 @@ func (c *Checker) checkFunctionStatement(s *ast.FunctionStatement) {
 	}
 
 	fnType := &FunctionType{Params: paramTypes, Return: fnRetType}
-	c.scope.Define(s.Name.Value, fnType)
+	line, col := s.Pos()
+	c.scope.DefineWithPos(s.Name.Value, fnType, line, col)
 
 	prevScope := c.scope
 	prevOwnership := c.pushOwnership()
@@ -354,7 +392,8 @@ func (c *Checker) checkFunctionStatement(s *ast.FunctionStatement) {
 	c.inAsyncFn = s.Async
 
 	for i, p := range s.Parameters {
-		c.scope.Define(p.Name.Value, paramTypes[i])
+		pl, pc := p.Pos()
+		c.scope.DefineWithPos(p.Name.Value, paramTypes[i], pl, pc)
 		c.trackOwnership(p.Name.Value, paramTypes[i])
 	}
 
@@ -408,10 +447,12 @@ func (c *Checker) checkForInStatement(s *ast.ForInStatement) {
 	c.scope = NewScope(prevScope)
 
 	if arr, ok := iterType.(*ArrayType); ok {
-		c.scope.Define(s.Value.Value, arr.Element)
+		line, col := s.Value.Pos()
+		c.scope.DefineWithPos(s.Value.Value, arr.Element, line, col)
 		c.trackOwnership(s.Value.Value, arr.Element)
 	} else {
-		c.scope.Define(s.Value.Value, Any)
+		line, col := s.Value.Pos()
+		c.scope.DefineWithPos(s.Value.Value, Any, line, col)
 		c.trackOwnership(s.Value.Value, Any)
 	}
 
@@ -438,12 +479,14 @@ func (c *Checker) checkBlockStatement(s *ast.BlockStatement) {
 
 func (c *Checker) checkRequireStatement(s *ast.RequireStatement) {
 	if s.Alias != nil {
-		c.scope.Define(s.Alias.Value, &ModuleType{Name: s.Path.Value})
+		line, col := s.Alias.Pos()
+		c.scope.DefineWithPos(s.Alias.Value, &ModuleType{Name: s.Path.Value}, line, col)
 	} else if len(s.Names) > 0 {
 		if members := builtinModuleMemberTypes(s.Path.Value); members != nil {
 			for _, name := range s.Names {
 				if t, ok := members[name.Value]; ok {
-					c.scope.Define(name.Value, t)
+					line, col := name.Pos()
+					c.scope.DefineWithPos(name.Value, t, line, col)
 				} else {
 					line, col := name.Pos()
 					c.error(line, col, "undefined export: %s", name.Value)
@@ -452,7 +495,8 @@ func (c *Checker) checkRequireStatement(s *ast.RequireStatement) {
 			return
 		}
 		for _, n := range s.Names {
-			c.scope.Define(n.Value, Any)
+			line, col := n.Pos()
+			c.scope.DefineWithPos(n.Value, Any, line, col)
 		}
 	} else if s.All {
 		if members := builtinModuleMemberTypes(s.Path.Value); members != nil {
@@ -461,7 +505,6 @@ func (c *Checker) checkRequireStatement(s *ast.RequireStatement) {
 			}
 			return
 		}
-		// Wildcard imports for non-builtin modules are resolved at runtime.
 		c.scope.Define(s.Path.Value, &ModuleType{Name: s.Path.Value})
 	}
 }
