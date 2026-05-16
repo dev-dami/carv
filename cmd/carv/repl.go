@@ -46,12 +46,12 @@ func runREPL() {
 
 	historyPath := filepath.Join(os.Getenv("HOME"), replHistoryFile)
 	if f, err := os.Open(historyPath); err == nil {
-		line.ReadHistory(f)
+		_, _ = line.ReadHistory(f)
 		f.Close()
 	}
 	defer func() {
 		if f, err := os.Create(historyPath); err == nil {
-			line.WriteHistory(f)
+			_, _ = line.WriteHistory(f)
 			f.Close()
 		}
 	}()
@@ -142,7 +142,7 @@ func handleCommand(cmd string) {
 	case ":clear":
 		cmd := exec.Command("clear")
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		_ = cmd.Run()
 	case ":quit", ":exit":
 		fmt.Println("Bye!")
 		os.Exit(0)
