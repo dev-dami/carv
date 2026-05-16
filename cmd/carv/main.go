@@ -59,6 +59,8 @@ func main() {
 		removePackage()
 	case "install":
 		installPackages()
+	case "repl":
+		runREPL()
 	default:
 		if strings.HasSuffix(os.Args[1], ".carv") {
 			buildFile(os.Args[1], "")
@@ -82,6 +84,7 @@ Commands:
   add <name>      Add a dependency to carv.toml
   remove <name>   Remove a dependency from carv.toml
   install         Install all dependencies from carv.toml
+  repl            Start interactive REPL
   version         Print version info
   help            Show this help
 
