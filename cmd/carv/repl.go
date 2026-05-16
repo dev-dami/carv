@@ -123,6 +123,20 @@ func runREPL() {
 	}
 }
 
+func isAssignmentExpr(input string) bool {
+	trimmed := strings.TrimSpace(input)
+	if strings.HasSuffix(trimmed, ";") {
+		trimmed = strings.TrimSpace(trimmed[:len(trimmed)-1])
+	}
+	for _, op := range []string{"+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "="} {
+		idx := strings.Index(trimmed, op)
+		if idx > 0 && !strings.Contains(trimmed[:idx], "(") {
+			return true
+		}
+	}
+	return false
+}
+
 func needsMoreInput(input string) bool {
 	openBrace := strings.Count(input, "{") - strings.Count(input, "}")
 	openParen := strings.Count(input, "(") - strings.Count(input, ")")
@@ -256,6 +270,20 @@ func evalREPL(line *liner.State, input string, sessionDecls *strings.Builder) {
 		strings.HasPrefix(strings.TrimSpace(input), "impl ")
 
 	if isDecl {
+		testSrc := input
+		if !strings.HasSuffix(strings.TrimSpace(input), ";") && !strings.HasSuffix(strings.TrimSpace(input), "}") {
+			testSrc = input + ";"
+		}
+		l := lexer.New(testSrc)
+		p := parser.New(l)
+		p.ParseProgram()
+		if len(p.Errors()) > 0 {
+			for _, e := range p.Errors() {
+				fmt.Fprintln(os.Stderr, e)
+			}
+			return
+		}
+
 		sessionDecls.WriteString(input)
 		if !strings.HasSuffix(strings.TrimSpace(input), ";") && !strings.HasSuffix(strings.TrimSpace(input), "}") {
 			sessionDecls.WriteString(";")
@@ -266,7 +294,11 @@ func evalREPL(line *liner.State, input string, sessionDecls *strings.Builder) {
 	}
 
 	if !hasMain && !strings.Contains(input, "fn ") && !strings.Contains(input, "class ") && !strings.Contains(input, "interface ") {
-		src = "println(" + input + ");"
+		if isAssignmentExpr(input) {
+			src = input + ";"
+		} else {
+			src = "println(" + input + ");"
+		}
 	}
 
 	fullSrc := sessionDecls.String() + src
