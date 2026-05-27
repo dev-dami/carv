@@ -8,9 +8,9 @@ How the compiler is structured. Mostly notes for myself but might be useful if y
 
 ## Pipeline
 
-Source → Lexer → Tokens → Parser → AST → Type Checker → Interpreter or C Codegen → GCC/Clang → Binary
+Source → Lexer → Tokens → Parser → AST → Type Checker → C Codegen → GCC/Clang → Binary
 
-The type checker produces a `CheckResult` with type info, ownership tracking, and warnings. Both the interpreter and codegen consume this result.
+The type checker produces a `CheckResult` with type info, ownership tracking, and warnings. Codegen consumes this result to emit C.
 
 ## Package Overview
 
@@ -50,7 +50,7 @@ Produces a `CheckResult` with:
 - `FuncSigs`: function signatures
 - `ClassInfo`: class field/method info
 - `Errors`: type errors (fatal in codegen)
-- `Warnings`: ownership/borrow violations (warnings in interpreter, fatal in codegen)
+- `Warnings`: ownership/borrow violations (treated as fatal in codegen)
 
 Implements ownership tracking (move/drop), borrow checking (&T / &mut T), and a warnings system for non-fatal violations.
 
@@ -60,17 +60,6 @@ Key files:
 - `borrow.go` - borrow state and borrow checks
 - `interface.go` - interface + impl validation
 - `async.go` - async/await validation
-
-### `pkg/eval`
-
-Tree-walking interpreter. Useful for quick iteration and testing without going through the C compilation step.
-
-Key files:
-- `eval.go` - dispatcher and core statement eval
-- `eval_*.go` - expression/operation evaluators split by concern
-- `object.go` - runtime value types
-- `builtins.go` - built-in functions
-- `environment.go` - variable scoping
 
 ### `pkg/codegen`
 
@@ -165,17 +154,13 @@ Subcommands:
 
 Portability mostly. C compilers exist everywhere, and I get optimization for free. Plus it's interesting to see how high-level constructs map to C.
 
-**Why a tree-walking interpreter too?**
-
-Much faster feedback loop during development. Compiling to C means invoking GCC which is slow for quick tests.
-
 **Why semicolons?**
 
 Easier to parse. Maybe I'll add automatic semicolon insertion later, but for now explicit semis keep the parser simple.
 
 ## Future Plans
 
-The goal is self-hosting - writing the Carv compiler in Carv itself.r in Carv. That means I need:
+The goal is self-hosting - writing the Carv compiler in Carv itself. That means I need:
 
 1. ~~Module/import system~~ ✓ Done!
 2. ~~String interpolation~~ ✓ Done!

@@ -335,11 +335,11 @@ Create a directory (and parent directories).
 mkdir("build/output");
 ```
 
-### `remove_file(path)`
+### `delete_file(path)`
 Delete a file.
 
 ```carv
-remove_file("old.txt");
+delete_file("old.txt");
 ```
 
 ### `rename_file(old_path, new_path)`
@@ -349,11 +349,11 @@ Rename or move a file.
 rename_file("old.txt", "new.txt");
 ```
 
-### `read_dir(path) -> array`
+### `list_dir(path) -> array`
 Read directory entries and return sorted file/directory names.
 
 ```carv
-let entries = read_dir(".");
+let entries = list_dir(".");
 println(entries);
 ```
 

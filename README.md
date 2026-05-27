@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="#features">Features</a> •
+  <a href="#what-it-does">Features</a> •
   <a href="#quick-look">Quick Look</a> •
   <a href="#building">Building</a> •
   <a href="#where-things-stand">Status</a> •
@@ -18,7 +18,7 @@
 
 # Carv
 
-A programming language designed for embedded systems (ARM Cortex-M0 through M7). Compiles to C, runs natively on bare metal.
+A programming language designed for embedded systems. Compiles to C, runs natively on bare metal.
 
 ---
 
@@ -32,7 +32,7 @@ The focus is now squarely on **embedded systems**: sized integer types, volatile
 
 ## What It Does
 
-Carv compiles to C and targets embedded hardware (ARM Cortex-M series). No interpreter, no runtime — just clean C output that works with `gcc` or `arm-none-eabi-gcc`.
+Carv compiles to C and targets embedded hardware. No interpreter, no runtime — just clean C output that works with `gcc` or `arm-none-eabi-gcc`.
 
 Features that actually work:
 - **Sized integer types** (`u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`, `usize`, `isize`)
@@ -66,8 +66,8 @@ let counter: u32 = 0;
 let flags: u8 = 0xFF;
 let temperature: f32 = 23.5;
 
-// volatile for hardware registers
-let status: volatile<u32> = 0;
+// volatile for hardware registers (memory-mapped I/O)
+let status_reg: volatile<u32>;
 
 // packed struct for register maps
 packed class GPIO_Regs {
@@ -79,8 +79,8 @@ packed class GPIO_Regs {
     odr:     u32 = 0
 }
 
-// static variables
-static let buffer: [64]u8 = [0; 64];
+// static variable declarations
+static let boot_count: int = 0;
 
 // method chaining
 let result = sensor.read().calibrate().to_celsius();
@@ -277,4 +277,4 @@ MIT
 
 ---
 
-*Built for blinking LEDs, reading sensors, and writing to registers — without the footguns of raw C.*
+*Built for reading sensors, and writing to registers - without the footguns of raw C.*

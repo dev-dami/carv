@@ -563,9 +563,9 @@ fn calculate() -> Result {
 - `append_file(path, content)` - append to file
 - `file_exists(path)` - check if file exists
 - `mkdir(path)` - create directory
-- `remove_file(path)` - delete file
+- `delete_file(path)` - delete file
 - `rename_file(old_path, new_path)` - rename/move file
-- `read_dir(path)` - list directory entries
+- `list_dir(path)` - list directory entries
 - `cwd()` - current working directory
 
 ### Networking (TCP)

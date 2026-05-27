@@ -102,8 +102,11 @@ Use these maintained sample files:
 Run with:
 
 ```bash
-./build/carv run docs/samples/hello.carv
-./build/carv run docs/samples/showcase.carv
+./build/carv build docs/samples/hello.carv
+./docs/samples/hello
+
+./build/carv build docs/samples/showcase.carv
+./docs/samples/showcase
 ```
 
 ---
