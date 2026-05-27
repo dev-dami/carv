@@ -257,11 +257,13 @@ fn greet(name: string) {
     print("Hello, " + name);
 }
 
-// anonymous functions
-let double = fn(x: int) -> int { return x * 2; };
+// anonymous functions (VM: parsed but not yet executable)
+// let double = fn(x: int) -> int { return x * 2; };
 ```
 
 ## Async / Await
+
+> **Status**: `carv build` (C codegen) only. Not supported in `carv run` (VM).
 
 Carv supports `async fn` and `await`. Async functions are compiled into state machines in C codegen.
 
@@ -286,17 +288,14 @@ async fn carv_main() -> int {
 
 ## Pipe Operator
 
-This is my favorite feature. Pass results through a chain of functions:
+> **Status**: Planned — parser/IR support not yet implemented.
+
+This would pass results through a chain of functions:
 
 ```carv
 // instead of: print(add(5, double(x)))
-x |> double |> add(5) |> print;
-
-// with arrays
-[1, 2, 3] |> head |> print;  // 1
+// x |> double |> add(5) |> print;
 ```
-
-The left side becomes the first argument of the right side.
 
 ## Control Flow
 
@@ -518,13 +517,21 @@ fn calculate() -> Result {
 
 ## Built-in Functions
 
+Functions marked with ✅ work in `carv run` (VM) and `carv build` (C codegen).
+Unmarked functions only work in `carv build`.
+
 ### General
-- `print(...)` / `println(...)` - print to stdout
-- `len(x)` - length of string or array
-- `str(x)` - convert to string
-- `int(x)` - convert to int
-- `float(x)` - convert to float
+- `print(...)` ✅ / `println(...)` ✅ - print to stdout
+- `len(x)` ✅ - length of string, array, or map
+- `contains(collection, item)` ✅ - search string/array/map
+- `keys(map)` ✅ - get all keys from a map
+- `string(x)` ✅ - convert to string
+- `int(x)` ✅ - convert to int
+- `float(x)` ✅ - convert to float
+- `readline()` ✅ - read a line from stdin
+- `assert(condition)` ✅ - panic if false
 - `type_of(x)` - get type as string
+- `str(x)` - alias for `string()` (C codegen only)
 
 ### Arrays
 - `push(arr, item)` - return new array with item appended
@@ -536,7 +543,6 @@ fn calculate() -> Result {
 - `join(arr, sep)` - join array into string
 - `trim(str)` - remove whitespace
 - `substr(str, start, end?)` - substring
-- `contains(str, substr)` - check if contains
 - `starts_with(str, prefix)` - check prefix
 - `ends_with(str, suffix)` - check suffix
 - `replace(str, old, new)` - replace all occurrences
@@ -551,7 +557,6 @@ fn calculate() -> Result {
 - `parse_float(str)` - parse string as float
 
 ### Maps
-- `keys(map)` - get all keys as array
 - `values(map)` - get all values as array
 - `has_key(map, key)` - check if key exists
 - `set(map, key, value)` - return new map with key set

@@ -235,6 +235,8 @@ func (p *Parser) parseStatement() ast.Statement {
 		stmt = p.parseForStatement()
 	case lexer.TOKEN_WHILE:
 		stmt = p.parseWhileStatement()
+	case lexer.TOKEN_LOOP:
+		stmt = p.parseLoopStatement()
 	case lexer.TOKEN_BREAK:
 		stmt = p.parseBreakStatement()
 	case lexer.TOKEN_CONTINUE:
@@ -539,6 +541,17 @@ func (p *Parser) parseWhileStatement() *ast.WhileStatement {
 
 	p.nextToken()
 	stmt.Condition = p.parseExpression(LOWEST)
+
+	if !p.expectPeek(lexer.TOKEN_LBRACE) {
+		return nil
+	}
+	stmt.Body = p.parseBlockStatement()
+
+	return stmt
+}
+
+func (p *Parser) parseLoopStatement() *ast.LoopStatement {
+	stmt := &ast.LoopStatement{Token: p.curToken}
 
 	if !p.expectPeek(lexer.TOKEN_LBRACE) {
 		return nil

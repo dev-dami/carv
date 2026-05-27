@@ -8,12 +8,14 @@ import (
 	"strings"
 
 	"github.com/dev-dami/carv/pkg/codegen"
+	"github.com/dev-dami/carv/pkg/ir"
 	"github.com/dev-dami/carv/pkg/lexer"
 	"github.com/dev-dami/carv/pkg/lsp"
 	"github.com/dev-dami/carv/pkg/module"
 	"github.com/dev-dami/carv/pkg/parser"
 	"github.com/dev-dami/carv/pkg/resolver"
 	"github.com/dev-dami/carv/pkg/types"
+	"github.com/dev-dami/carv/pkg/vm"
 )
 
 const version = "0.6.0"
@@ -59,6 +61,12 @@ func main() {
 		removePackage()
 	case "install":
 		installPackages()
+	case "run":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: carv run <file.carv>")
+			os.Exit(1)
+		}
+		runFile(os.Args[2])
 	case "repl":
 		runREPL()
 	case "lsp":
@@ -83,6 +91,7 @@ Usage:
 
 Commands:
   build <file>    Compile to native binary via C
+  run <file>      Execute via built-in VM
   emit-c <file>   Output generated C code
   init            Initialize a new Carv project with carv.toml
   repl            Start interactive REPL
@@ -195,6 +204,50 @@ func emitC(filename string) {
 	gen.SetTypeInfo(checker.TypeInfo())
 	cCode := gen.Generate(program)
 	fmt.Print(cCode)
+}
+
+func runFile(filename string) {
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error reading file: %s\n", err)
+		os.Exit(1)
+	}
+
+	l := lexer.New(string(content))
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) > 0 {
+		for _, msg := range p.Errors() {
+			fmt.Fprintln(os.Stderr, msg)
+		}
+		os.Exit(1)
+	}
+
+	checker := types.NewChecker()
+	if !checker.Check(program) {
+		for _, msg := range checker.Errors() {
+			fmt.Fprintln(os.Stderr, msg)
+		}
+		os.Exit(1)
+	}
+
+	lowerer := ir.NewLowerer(checker.TypeInfo())
+	mod := lowerer.Lower(program)
+
+	if len(lowerer.Errors()) > 0 {
+		for _, msg := range lowerer.Errors() {
+			fmt.Fprintln(os.Stderr, msg)
+		}
+		os.Exit(1)
+	}
+
+	v := vm.New(mod)
+	_, err = v.Run()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "runtime error: %s\n", err)
+		os.Exit(1)
+	}
 }
 
 func buildFile(filename string, target string) {

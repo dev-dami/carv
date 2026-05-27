@@ -8,9 +8,14 @@ How the compiler is structured. Mostly notes for myself but might be useful if y
 
 ## Pipeline
 
-Source → Lexer → Tokens → Parser → AST → Type Checker → C Codegen → GCC/Clang → Binary
+```
+Source → Lexer → Tokens → Parser → AST → Type Checker → IR → (VM | C Codegen → GCC/Clang → Binary)
+```
 
-The type checker produces a `CheckResult` with type info, ownership tracking, and warnings. Codegen consumes this result to emit C.
+- **`carv run`**: type checker → IR → VM (fast iteration, no C compiler needed)
+- **`carv build`**: type checker → IR → C Codegen → GCC/Clang → native binary
+
+The type checker produces a `CheckResult` with type info, ownership tracking, and warnings. IR lowering converts the typed AST into a flat instruction list consumed by either the VM or C codegen.
 
 ## Package Overview
 
@@ -90,6 +95,31 @@ Interfaces compile to a vtable + fat pointer pattern:
 
 Generation order: interface typedefs → impl forward decls → impl bodies → wrappers + vtable instances (all before `main()`)
 
+### `pkg/ir`
+
+Intermediate Representation — a flat instruction list that decouples the type checker from both the VM and C codegen.
+
+Key files:
+- `ir.go` — IR instruction types (73 opcodes: arithmetic, control flow, memory, objects, etc.)
+- `lower.go` — lower typed AST → IR instruction sequence
+- `ssa.go` — SSA construction and def-use chain analysis
+- `optimize.go` — peephole and constant-folding optimizations
+- `scheduler.go` — instruction scheduling for execution order
+
+The IR uses a register-based format with `ValueRef` (SSA value references) and `BlockRef` (basic block references). All control flow is explicit via branch/phi instructions.
+
+### `pkg/vm`
+
+Bytecode-style virtual machine that executes IR directly. No separate bytecode encoding — the IR instruction list IS the bytecode.
+
+Key files:
+- `vm.go` — main interpreter loop (all 73 opcodes)
+- `value.go` — runtime value representation (int, float, string, array, map, object, etc.)
+- `thread.go` — goroutine-friendly thread-safe execution
+- `debug.go` — debug/trace helpers for inspecting VM state
+
+The VM supports: all arithmetic/logic ops, heap allocation (arrays, maps, strings), function calls (native + Carv-defined), virtual dispatch via interface calls, closures (function values), class method dispatch, and the 10 built-in functions (`print`, `println`, `len`, `contains`, `keys`, `int`, `float`, `string`, `readline`, `assert`).
+
 ### `pkg/module`
 
 Module system for loading and resolving dependencies.
@@ -140,7 +170,10 @@ Provides:
 
 ### `cmd-carv`
 
-CLI entry point. Handles `build`, `emit-c`, `repl`, `lsp`, `init`, `add`, `remove`, `install`, and `pkg` commands.
+CLI entry point. Handles `run`, `build`, `emit-c`, `repl`, `lsp`, `init`, `add`, `remove`, `install`, and `pkg` commands.
+
+- `carv run <file>` — parse, type-check, lower to IR, execute in the built-in VM
+- `carv build <file>` — parse, type-check, lower to IR, generate C code, compile with GCC/Clang
 
 Subcommands:
 - `carv pkg list` — list installed dependencies with lock status
@@ -153,6 +186,10 @@ Subcommands:
 **Why compile to C?**
 
 Portability mostly. C compilers exist everywhere, and I get optimization for free. Plus it's interesting to see how high-level constructs map to C.
+
+**Why a VM?**
+
+Fast iteration. `carv run` skips the C compiler entirely — parse, type-check, and execute in milliseconds. The VM is register-based and executes the IR directly (no separate bytecode). It's not as fast as compiled C code, but for development it's much more convenient.
 
 **Why semicolons?**
 
@@ -168,9 +205,10 @@ The goal is self-hosting - writing the Carv compiler in Carv itself. That means 
 4. ~~Borrowing (&T / &mut T)~~ ✓ Done!
 5. ~~Interfaces (interface/impl)~~ ✓ Done!
 6. ~~Async/await~~ ✓ Done!
-7. Package manager (for external dependencies)
-8. Better standard library
-9. Then rewrite lexer, parser, codegen in Carv
+7. ~~IR + Virtual Machine~~ ✓ Done!
+8. Package manager (for external dependencies)
+9. Better standard library
+10. Then rewrite lexer, parser, codegen in Carv
 
 It's a long road but that's half the fun. Getting closer though!
 

@@ -14,8 +14,8 @@ fn double(n: int) -> int {
 }
 
 print("Hello, Carv!");
-let x = 10;
-x |> double |> print;
+// let x = 10;
+// x |> double |> print;  // pipe operator: planned, not yet implemented
 ```
 
 ## String Interpolation
@@ -95,19 +95,22 @@ net.tcp_close(listener);
 
 ## Runnable Samples
 
-Use these maintained sample files:
-- `docs/samples/hello.carv`
-- `docs/samples/showcase.carv`
-
-Run with:
+All 20 sample programs in `docs/samples/` work with both `carv run` (VM) and `carv build` (C codegen):
 
 ```bash
-./build/carv build docs/samples/hello.carv
-./docs/samples/hello
+# Run with the built-in VM (no C compiler needed)
+carv run docs/samples/01-hello.carv
+carv run docs/samples/10-classes.carv
 
-./build/carv build docs/samples/showcase.carv
-./docs/samples/showcase
+# Build to native binary via C
+carv build docs/samples/01-hello.carv
+./docs/samples/01-hello
 ```
+
+Samples cover: basics, variables, functions, control flow, for loops, strings,
+compound assignment, arrays, maps, classes, methods, interfaces, impl blocks,
+result types, match expressions, borrowing, function composition, modules,
+embedded features, and advanced concepts.
 
 ---
 

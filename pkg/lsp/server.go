@@ -48,6 +48,7 @@ func RunServer() {
 	handler.TextDocumentSignatureHelp = textDocumentSignatureHelp
 	handler.TextDocumentReferences = textDocumentReferences
 	handler.TextDocumentDocumentHighlight = textDocumentDocumentHighlight
+	handler.TextDocumentCodeAction = textDocumentCodeAction
 
 	srv := server.NewServer(&handler, serverName, false)
 	_ = srv.RunStdio()
@@ -59,6 +60,9 @@ func initialize(context *glsp.Context, params *protocol.InitializeParams) (any, 
 	capabilities.DefinitionProvider = true
 	capabilities.CompletionProvider = &protocol.CompletionOptions{
 		TriggerCharacters: []string{"."},
+	}
+	capabilities.CodeActionProvider = &protocol.CodeActionOptions{
+		CodeActionKinds: []protocol.CodeActionKind{protocol.CodeActionKindQuickFix},
 	}
 
 	v := serverVersion
@@ -222,15 +226,81 @@ func textDocumentCompletion(context *glsp.Context, params *protocol.CompletionPa
 	return items, nil
 }
 
+func textDocumentCodeAction(context *glsp.Context, params *protocol.CodeActionParams) (any, error) {
+	state.mu.RLock()
+	content := state.documents[params.TextDocument.URI]
+	state.mu.RUnlock()
+	if content == "" {
+		return nil, nil
+	}
+
+	var actions []protocol.CodeAction
+
+	for _, diag := range params.Context.Diagnostics {
+		msg := diag.Message
+
+		// Quick fix: "cannot assign to immutable" / "cannot reassign" → suggest `mut`
+		if strings.Contains(msg, "cannot assign") || strings.Contains(msg, "immutable") || strings.Contains(msg, "cannot reassign") {
+			kind := protocol.CodeActionKindQuickFix
+			trueVal := true
+			actions = append(actions, protocol.CodeAction{
+				Title:       "Add `mut` keyword to make variable mutable",
+				Kind:        &kind,
+				Diagnostics: []protocol.Diagnostic{diag},
+				IsPreferred: &trueVal,
+			})
+		}
+
+		// Quick fix: "undefined" → suggest adding `let`
+		if strings.Contains(msg, "undefined:") {
+			kind := protocol.CodeActionKindQuickFix
+			actions = append(actions, protocol.CodeAction{
+				Title:       "Declare variable with `let`",
+				Kind:        &kind,
+				Diagnostics: []protocol.Diagnostic{diag},
+			})
+		}
+
+		// Quick fix: type mismatch → suggest casting
+		if strings.Contains(msg, "cannot pass") && strings.Contains(msg, "as") {
+			kind := protocol.CodeActionKindQuickFix
+			actions = append(actions, protocol.CodeAction{
+				Title:       "Add explicit `as` cast",
+				Kind:        &kind,
+				Diagnostics: []protocol.Diagnostic{diag},
+			})
+		}
+	}
+
+	// Fallback: if no errors exist, offer general diagnostics run
+	hasErrors := false
+	for _, d := range params.Context.Diagnostics {
+		if d.Severity != nil && *d.Severity == protocol.DiagnosticSeverityError {
+			hasErrors = true
+			break
+		}
+	}
+	if !hasErrors && len(params.Context.Diagnostics) > 0 {
+		kind := protocol.CodeActionKindQuickFix
+		actions = append(actions, protocol.CodeAction{
+			Title:       "Clear diagnostics",
+			Kind:        &kind,
+			Diagnostics: params.Context.Diagnostics,
+		})
+	}
+
+	return actions, nil
+}
+
 var carvKeywords = []string{
 	"let", "mut", "const", "fn", "if", "else", "for", "in", "while", "loop",
 	"return", "break", "continue", "match", "class", "interface", "impl",
 	"async", "await", "spawn", "try", "new", "as", "self", "static",
 	"volatile", "packed", "unsafe", "asm", "require", "true", "false", "nil",
-	"void", "int", "bool", "string", "char", "any",
+	"void", "int", "float", "bool", "string", "char", "any", "Result", "Option",
 	"u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64",
 	"f32", "f64", "usize", "isize",
-	"pub", "priv", "Ok", "Err", "function", "import", "export", "module", "from",
+	"pub", "priv", "Ok", "Err", "Some", "None", "function", "import", "export", "module", "from",
 	"chan", "send", "recv", "select", "type", "is", "super",
 }
 

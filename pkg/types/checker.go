@@ -133,7 +133,8 @@ func (c *Checker) defineBuiltins() {
 	c.scope.Define("ord", &FunctionType{Params: []Type{Any}, Return: Int})
 	c.scope.Define("chr", &FunctionType{Params: []Type{Int}, Return: Char})
 	c.scope.Define("char_at", &FunctionType{Params: []Type{String, Int}, Return: Char})
-	c.scope.Define("contains", &FunctionType{Params: []Type{String, String}, Return: Bool})
+	c.scope.Define("contains", &FunctionType{Params: []Type{Any, Any}, Return: Bool})
+	c.scope.Define("string", &FunctionType{Params: []Type{Any}, Return: String})
 	c.scope.Define("starts_with", &FunctionType{Params: []Type{String, String}, Return: Bool})
 	c.scope.Define("ends_with", &FunctionType{Params: []Type{String, String}, Return: Bool})
 	c.scope.Define("replace", &FunctionType{Params: []Type{String, String, String}, Return: String})
@@ -984,6 +985,10 @@ func (c *Checker) isAssignable(target, source Type) bool {
 		return true
 	}
 	if target.Equals(Float) && source.Equals(Int) {
+		return true
+	}
+	// Allow integer literal (typed as int) to be assigned to sized integer types
+	if source.Equals(Int) && IsNumeric(target) {
 		return true
 	}
 	return false

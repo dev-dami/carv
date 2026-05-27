@@ -16,7 +16,8 @@
     "Linters"
   ],
   "activationEvents": [
-    "onLanguage:carv"
+    "onLanguage:carv",
+    "onCommand:carv.runFile"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -35,6 +36,28 @@
         "path": "./syntaxes/carv.tmLanguage.json"
       }
     ],
+    "commands": [
+      {
+        "command": "carv.runFile",
+        "title": "Carv: Run File"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "carv.runFile",
+          "group": "navigation",
+          "when": "editorLangId == carv"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "carv.runFile",
+          "group": "navigation",
+          "when": "resourceLangId == carv"
+        }
+      ]
+    },
     "configuration": {
       "title": "Carv Language Server",
       "properties": {

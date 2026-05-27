@@ -1206,6 +1206,24 @@ func (g *CGenerator) emitRuntime() {
 	g.writeln("    printf(\"}\");")
 	g.writeln("}")
 	g.writeln("")
+	g.writeln("static carv_string_array carv_map_keys(carv_map m) {")
+	g.writeln("    carv_string_array arr = {NULL, 0, 0};")
+	g.writeln("    for (carv_int i = 0; i < m.cap; i++) {")
+	g.writeln("        if (!m.entries[i].occupied) continue;")
+	g.writeln("        if (arr.len >= arr.cap) {")
+	g.writeln("            carv_int newcap = arr.cap == 0 ? 8 : arr.cap * 2;")
+	g.writeln("            carv_string* newdata = (carv_string*)carv_arena_alloc(newcap * sizeof(carv_string));")
+	g.writeln("            if (arr.data) {")
+	g.writeln("                memcpy(newdata, arr.data, arr.len * sizeof(carv_string));")
+	g.writeln("            }")
+	g.writeln("            arr.data = newdata;")
+	g.writeln("            arr.cap = newcap;")
+	g.writeln("        }")
+	g.writeln("        arr.data[arr.len++] = m.entries[i].key;")
+	g.writeln("    }")
+	g.writeln("    return arr;")
+	g.writeln("}")
+	g.writeln("")
 
 	if g.hasAsync {
 		g.emitEventLoopRuntime()
@@ -2050,15 +2068,23 @@ func (g *CGenerator) generateForInStatement(s *ast.ForInStatement) {
 	idxVar := fmt.Sprintf("__idx_%d", g.tempCounter)
 	g.tempCounter++
 
-	elemType := g.inferArrayElemType(s.Iterable)
+	iterableCType := g.resolveType(s.Iterable)
 
-	if _, ok := s.Iterable.(*ast.StringLiteral); ok {
+	if iterableCType == "carv_map" {
+		g.writeln(fmt.Sprintf("for (carv_int %s = 0; %s < %s.cap; %s++) {", idxVar, idxVar, iterableExpr, idxVar))
+		g.indent++
+		g.enterScope()
+		g.writeln(fmt.Sprintf("if (!%s.entries[%s].occupied) continue;", iterableExpr, idxVar))
+		g.writeln(fmt.Sprintf("carv_string %s = %s.entries[%s].key;", iterName, iterableExpr, idxVar))
+		g.declareVar(iterName, "carv_string", true, true)
+	} else if _, ok := s.Iterable.(*ast.StringLiteral); ok {
 		g.writeln(fmt.Sprintf("for (carv_int %s = 0; %s < %s.len; %s++) {", idxVar, idxVar, iterableExpr, idxVar))
 		g.indent++
 		g.enterScope()
 		g.writeln(fmt.Sprintf("carv_string %s = carv_string_char_at(%s, %s);", iterName, iterableExpr, idxVar))
 		g.declareVar(iterName, "carv_string", true, true)
 	} else {
+		elemType := g.inferArrayElemType(s.Iterable)
 		g.writeln(fmt.Sprintf("for (carv_int %s = 0; %s < %s.len; %s++) {", idxVar, idxVar, iterableExpr, idxVar))
 		g.indent++
 		g.enterScope()
@@ -2319,7 +2345,21 @@ func (g *CGenerator) generateCallExpression(e *ast.CallExpression) string {
 		if argType == "carv_string" {
 			return fmt.Sprintf("(carv_int)%s.len", arg)
 		}
+		if strings.HasSuffix(argType, "*") {
+			return fmt.Sprintf("(carv_int)%s->len", arg)
+		}
 		return fmt.Sprintf("%s.len", arg)
+	}
+
+	if fn == "contains" && len(e.Arguments) == 2 {
+		arg1 := g.generateExpression(e.Arguments[0])
+		arg2 := g.generateExpression(e.Arguments[1])
+		return fmt.Sprintf("(carv_bool)(strstr(%s.data, %s.data) != NULL)", arg1, arg2)
+	}
+
+	if fn == "keys" && len(e.Arguments) == 1 {
+		arg := g.generateExpression(e.Arguments[0])
+		return fmt.Sprintf("carv_map_keys(%s)", arg)
 	}
 
 	if fn == "read_file" && len(e.Arguments) == 1 {
@@ -2866,7 +2906,17 @@ func (g *CGenerator) inferArrayElemType(expr ast.Expression) string {
 	case *ast.StringLiteral:
 		return "carv_string"
 	case *ast.Identifier:
-		return "carv_int"
+		fullType := g.resolveType(expr)
+		switch fullType {
+		case "carv_string_array":
+			return "carv_string"
+		case "carv_float_array":
+			return "carv_float"
+		case "carv_bool_array":
+			return "carv_bool"
+		default:
+			return "carv_int"
+		}
 	}
 	return "carv_int"
 }
@@ -3173,15 +3223,65 @@ func (g *CGenerator) generateMatchExpression(e *ast.MatchExpression) string {
 	resultName := fmt.Sprintf("__match_res_%d", g.tempCounter)
 	g.tempCounter++
 
-	okType := g.inferResultOkType(e.Value)
-	okField := g.okFieldForType(okType)
-	errType := g.inferResultErrType(e.Value)
-	errField := g.errFieldForType(errType)
+	scrutineeType := g.resolveType(e.Value)
 
 	resultType := "carv_int"
 	if len(e.Arms) > 0 {
 		resultType = g.resolveType(e.Arms[0].Body)
 	}
+
+	// Non-Result match (integer, string, etc.)
+	if scrutineeType != "carv_result" {
+		g.addPreamble(fmt.Sprintf("%s %s = %s;", scrutineeType, tempName, val))
+		g.addPreamble(fmt.Sprintf("%s %s;", resultType, resultName))
+
+		for i, arm := range e.Arms {
+			prefix := ""
+			if i < len(e.Arms)-1 {
+				if i > 0 {
+					prefix = "else "
+				}
+				g.addPreamble(fmt.Sprintf("%sif (%s == %s) {",
+					prefix, tempName, g.generateExpression(arm.Pattern)))
+			} else {
+				g.addPreamble(fmt.Sprintf("%s{", prefix))
+			}
+
+			g.enterScope()
+			if blockExpr, isBlock := arm.Body.(*ast.BlockExpression); isBlock {
+				if len(blockExpr.Block.Statements) == 0 {
+					g.addPreamble(fmt.Sprintf("%s = %s;", resultName, g.zeroValue(resultType)))
+				} else {
+					assigned := false
+					for _, stmt := range blockExpr.Block.Statements {
+						if es, ok := stmt.(*ast.ExpressionStatement); ok {
+							expr := g.generateExpression(es.Expression)
+							if expr != "" {
+								g.addPreamble(fmt.Sprintf("%s = %s;", resultName, expr))
+								assigned = true
+							}
+						}
+					}
+					if !assigned {
+						g.addPreamble(fmt.Sprintf("%s = %s;", resultName, g.zeroValue(resultType)))
+					}
+				}
+			} else {
+				bodyExpr := g.generateExpression(arm.Body)
+				g.addPreamble(fmt.Sprintf("%s = %s;", resultName, bodyExpr))
+			}
+			g.addPreamble("}")
+			g.exitScope()
+		}
+
+		return resultName
+	}
+
+	// Result-based match
+	okType := g.inferResultOkType(e.Value)
+	okField := g.okFieldForType(okType)
+	errType := g.inferResultErrType(e.Value)
+	errField := g.errFieldForType(errType)
 
 	g.addPreamble(fmt.Sprintf("carv_result %s = %s;", tempName, val))
 	g.addPreamble(fmt.Sprintf("%s %s;", resultType, resultName))
@@ -3214,8 +3314,6 @@ func (g *CGenerator) generateMatchExpression(e *ast.MatchExpression) string {
 		}
 
 		if blockExpr, isBlock := arm.Body.(*ast.BlockExpression); isBlock {
-			// Match block-arms are statement-oriented; keep codegen valid even when the
-			// arm body does not produce an expression (e.g. `{}`).
 			if len(blockExpr.Block.Statements) == 0 {
 				g.addPreamble(fmt.Sprintf("%s = %s;", resultName, g.zeroValue(resultType)))
 			} else {
