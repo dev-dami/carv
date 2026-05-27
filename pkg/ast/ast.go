@@ -227,6 +227,7 @@ type FunctionLiteral struct {
 	Parameters []*Parameter
 	ReturnType TypeExpr
 	Body       *BlockStatement
+	Captures   []string // variables captured from enclosing scope
 }
 
 func (fl *FunctionLiteral) expressionNode()      {}
@@ -299,6 +300,16 @@ type CastExpression struct {
 func (ce *CastExpression) expressionNode()      {}
 func (ce *CastExpression) TokenLiteral() string { return ce.Token.Literal }
 func (ce *CastExpression) Pos() (int, int)      { return ce.Token.Line, ce.Token.Column }
+
+type PipeExpression struct {
+	Token lexer.Token // the |> token
+	Left  Expression
+	Right Expression // the function/expression being piped into
+}
+
+func (pe *PipeExpression) expressionNode()      {}
+func (pe *PipeExpression) TokenLiteral() string { return pe.Token.Literal }
+func (pe *PipeExpression) Pos() (int, int)      { return pe.Token.Line, pe.Token.Column }
 
 type IsExpression struct {
 	Token lexer.Token
