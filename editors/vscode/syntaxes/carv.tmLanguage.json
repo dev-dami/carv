@@ -5,20 +5,75 @@
   "fileTypes": ["carv"],
   "patterns": [
     { "include": "#comments" },
+    { "include": "#interpolated_string" },
     { "include": "#strings" },
     { "include": "#chars" },
     { "include": "#numbers" },
     { "include": "#keywords" },
     { "include": "#types" },
+    { "include": "#function_definitions" },
     { "include": "#operators" },
-    { "include": "#functions" }
+    { "include": "#self_keyword" },
+    { "include": "#call_expressions" },
+    { "include": "#method_calls" },
+    { "include": "#type_annotations" },
+    { "include": "#return_type_arrow" },
+    { "include": "#variable_declarations" },
+    { "include": "#property_access" },
+    { "include": "#module_keywords" },
+    { "include": "#concurrency_keywords" },
+    { "include": "#new_expression" },
+    { "include": "#cast_expression" },
+    { "include": "#match_arm_arrow" },
+    { "include": "#pipe_operator" },
+    { "include": "#is_expression" },
+    { "include": "#type_keyword" },
+    { "include": "#semicolons" }
   ],
   "repository": {
     "comments": {
       "patterns": [
         {
+          "name": "comment.block.carv",
+          "begin": "/\\*",
+          "end": "\\*/"
+        },
+        {
           "name": "comment.line.double-slash.carv",
           "match": "//.*$"
+        }
+      ]
+    },
+    "interpolated_string": {
+      "name": "string.quoted.double.interpolated.carv",
+      "begin": "f\"",
+      "end": "\"",
+      "beginCaptures": {
+        "0": { "name": "support.function.format.carv" }
+      },
+      "patterns": [
+        {
+          "name": "constant.character.escape.carv",
+          "match": "\\\\."
+        },
+        {
+          "name": "meta.embedded.block.carv",
+          "begin": "\\{",
+          "end": "\\}",
+          "patterns": [
+            { "include": "#strings" },
+            { "include": "#numbers" },
+            { "include": "#keywords" },
+            { "include": "#types" },
+            { "include": "#call_expressions" },
+            { "include": "#method_calls" },
+            { "include": "#property_access" },
+            { "include": "#operators" }
+          ]
+        },
+        {
+          "name": "constant.character.escape.carv",
+          "match": "\\{\\{|\\}\\}"
         }
       ]
     },
@@ -32,27 +87,33 @@
     },
     "chars": {
       "name": "string.quoted.single.carv",
-      "match": "'.'"
+      "begin": "'",
+      "end": "'",
+      "patterns": [
+        { "name": "constant.character.escape.carv", "match": "\\\\." }
+      ]
     },
     "numbers": {
       "patterns": [
         { "name": "constant.numeric.float.carv", "match": "\\b\\d+\\.\\d+\\b" },
-        { "name": "constant.numeric.integer.carv", "match": "\\b\\d+\\b" }
+        { "name": "constant.numeric.integer.carv", "match": "\\b\\d+\\b" },
+        { "name": "constant.numeric.hex.carv", "match": "\\b0x[0-9a-fA-F]+\\b" },
+        { "name": "constant.numeric.binary.carv", "match": "\\b0b[01]+\\b" }
       ]
     },
     "keywords": {
       "patterns": [
         {
           "name": "keyword.control.carv",
-          "match": "\\b(if|else|for|in|while|loop|return|break|continue|match|try)\\b"
+          "match": "\\b(if|else|for|in|while|loop|return|break|continue|match|try|is|as)\\b"
         },
         {
           "name": "keyword.declaration.carv",
-          "match": "\\b(fn|let|mut|const|class|interface|impl|static|pub|priv)\\b"
+          "match": "\\b(fn|let|mut|const|class|interface|impl|static|pub|priv|type|function)\\b"
         },
         {
           "name": "keyword.other.carv",
-          "match": "\\b(async|await|spawn|new|as|self|super|require|volatile|packed|unsafe|asm|is)\\b"
+          "match": "\\b(async|await|spawn|chan|select|send|recv|new|self|super|require|from|import|export|module|volatile|packed|unsafe|asm)\\b"
         },
         {
           "name": "constant.language.carv",
@@ -63,27 +124,167 @@
     "types": {
       "patterns": [
         {
-          "name": "storage.type.carv",
-          "match": "\\b(u8|u16|u32|u64|i8|i16|i32|i64|f32|f64|usize|isize|void|int|bool|string|char|any)\\b"
+          "name": "storage.type.primitive.carv",
+          "match": "\\b(void|int|float|bool|string|char|any|Result|ptr)\\b"
+        },
+        {
+          "name": "storage.type.sized.carv",
+          "match": "\\b(u8|u16|u32|u64|i8|i16|i32|i64|f32|f64|usize|isize)\\b"
+        }
+      ]
+    },
+    "function_definitions": {
+      "patterns": [
+        {
+          "name": "meta.function.carv",
+          "match": "\\b(pub\\s+)?(async\\s+)?(unsafe\\s+)?fn\\s+([a-zA-Z_]\\w*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.carv" },
+            "2": { "name": "keyword.other.carv" },
+            "3": { "name": "keyword.other.carv" },
+            "4": { "name": "entity.name.function.carv" }
+          }
         }
       ]
     },
     "operators": {
       "patterns": [
-        { "name": "keyword.operator.arithmetic.carv", "match": "[+\\-*/%=]" },
-        { "name": "keyword.operator.comparison.carv", "match": "(==|!=|<=|>=|<|>)" },
-        { "name": "keyword.operator.logical.carv", "match": "(&&|\\|\\||!)" },
-        { "name": "keyword.operator.assignment.carv", "match": "(\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|=)" },
-        { "name": "keyword.operator.arrow.carv", "match": "(->|=>)" }
+        { "name": "keyword.operator.arithmetic.carv", "match": "[+\\-*/%]" },
+        { "name": "keyword.operator.comparison.carv", "match": "==|!=|<=|>=|<|>" },
+        { "name": "keyword.operator.logical.carv", "match": "&&|\\|\\||!" },
+        { "name": "keyword.operator.bitwise.carv", "match": "~|&|\\||\\^" },
+        { "name": "keyword.operator.assignment.carv", "match": "\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=" },
+        { "name": "keyword.operator.assignment.carv", "match": "(?<![!<>=,.:;|&])=(?!=|>)" },
+        { "name": "keyword.operator.arrow.carv", "match": "->|=>" },
+        { "name": "keyword.operator.channel.carv", "match": "<-" },
+        { "name": "keyword.operator.try.carv", "match": "\\?(?!\")" },
+        { "name": "keyword.operator.pipe.carv", "match": "\\|>" }
       ]
     },
-    "functions": {
-      "patterns": [
-        {
-          "name": "entity.name.function.carv",
-          "match": "\\bfn\\s+([a-zA-Z_]\\w*)"
+    "self_keyword": {
+      "match": "\\bself\\b",
+      "name": "variable.language.carv"
+    },
+    "call_expressions": {
+      "match": "\\b([a-zA-Z_]\\w*)\\s*\\(",
+      "captures": {
+        "1": {
+          "name": "entity.name.function.call.carv"
         }
-      ]
+      }
+    },
+    "method_calls": {
+      "match": "(?<![0-9])\\.([a-zA-Z_]\\w*)\\s*\\(",
+      "captures": {
+        "1": {
+          "name": "entity.name.function.method.carv"
+        }
+      }
+    },
+    "type_annotations": {
+      "match": "(:\\s*)([a-zA-Z_]\\w*)(?![\\w\\(])",
+      "captures": {
+        "1": {
+          "name": "storage.type.annotation.carv"
+        },
+        "2": {
+          "name": "storage.type.annotation.carv"
+        }
+      }
+    },
+    "return_type_arrow": {
+      "match": "(->)\\s*([a-zA-Z_]\\w*)",
+      "captures": {
+        "1": {
+          "name": "keyword.operator.arrow.carv"
+        },
+        "2": {
+          "name": "storage.type.carv"
+        }
+      }
+    },
+    "variable_declarations": {
+      "match": "\\b(let|mut|const)\\s+([a-zA-Z_]\\w*)",
+      "captures": {
+        "1": {
+          "name": "keyword.declaration.carv"
+        },
+        "2": {
+          "name": "variable.name.carv"
+        }
+      }
+    },
+    "property_access": {
+      "match": "\\.([a-zA-Z_]\\w*)\\b(?!\\s*\\()",
+      "captures": {
+        "1": {
+          "name": "variable.other.property.carv"
+        }
+      }
+    },
+    "module_keywords": {
+      "match": "\\b(require|import|from|module|export)\\b",
+      "name": "keyword.control.module.carv"
+    },
+    "concurrency_keywords": {
+      "match": "\\b(spawn|async|await|chan|select|send|recv)\\b",
+      "name": "keyword.control.concurrency.carv"
+    },
+    "new_expression": {
+      "match": "\\b(new)\\s+([a-zA-Z_]\\w*)",
+      "captures": {
+        "1": {
+          "name": "keyword.other.carv"
+        },
+        "2": {
+          "name": "storage.type.class.carv"
+        }
+      }
+    },
+    "cast_expression": {
+      "match": "\\b(as)\\s+([a-zA-Z_]\\w*)",
+      "captures": {
+        "1": {
+          "name": "keyword.control.carv"
+        },
+        "2": {
+          "name": "storage.type.carv"
+        }
+      }
+    },
+    "match_arm_arrow": {
+      "match": "=>",
+      "name": "keyword.operator.match.arm.carv"
+    },
+    "pipe_operator": {
+      "match": "\\|>",
+      "name": "keyword.operator.pipe.carv"
+    },
+    "is_expression": {
+      "match": "\\b(is)\\s+([a-zA-Z_]\\w*)",
+      "captures": {
+        "1": {
+          "name": "keyword.control.carv"
+        },
+        "2": {
+          "name": "storage.type.carv"
+        }
+      }
+    },
+    "type_keyword": {
+      "match": "\\b(type)\\s+([a-zA-Z_]\\w*)",
+      "captures": {
+        "1": {
+          "name": "keyword.declaration.carv"
+        },
+        "2": {
+          "name": "entity.name.class.carv"
+        }
+      }
+    },
+    "semicolons": {
+      "match": ";",
+      "name": "punctuation.terminator.carv"
     }
   }
 }
