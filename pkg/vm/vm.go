@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/dev-dami/carv/pkg/ir"
@@ -38,6 +41,7 @@ type Value struct {
 	Class     map[string]Value
 	ClassName string
 	Func      *ir.Function
+	Captures  []Value // captured variables for closures
 }
 
 type ResultVal struct {
@@ -401,7 +405,7 @@ func (vm *VM) exec(inst *ir.Inst) (Value, error) {
 			args[i] = vm.pop()
 		}
 
-		result, err := vm.callFunction(fn, args)
+		result, err := vm.callFunction(fn, args, nil)
 		if err != nil {
 			return NilValue(), err
 		}
@@ -429,7 +433,7 @@ func (vm *VM) exec(inst *ir.Inst) (Value, error) {
 			return NilValue(), fmt.Errorf("undefined function: %s", fnName)
 		}
 
-		result, err := vm.callFunction(fn, args)
+		result, err := vm.callFunction(fn, args, nil)
 		if err != nil {
 			return NilValue(), err
 		}
@@ -632,6 +636,384 @@ func (vm *VM) exec(inst *ir.Inst) (Value, error) {
 		v := vm.pop()
 		vm.push(FloatValue(toFloat(v)))
 
+	// --- String builtins ---
+	case ir.OpStrSplit:
+		sep := vm.pop()
+		s := vm.pop()
+		parts := strings.Split(s.Str, sep.Str)
+		arr := make([]Value, len(parts))
+		for i, p := range parts {
+			arr[i] = StrValue(p)
+		}
+		vm.push(ArrayValue(arr))
+
+	case ir.OpStrJoin:
+		sep := vm.pop()
+		arr := vm.pop()
+		parts := make([]string, len(arr.Arr))
+		for i, v := range arr.Arr {
+			parts[i] = toString(v)
+		}
+		vm.push(StrValue(strings.Join(parts, sep.Str)))
+
+	case ir.OpStrTrim:
+		s := vm.pop()
+		vm.push(StrValue(strings.TrimSpace(s.Str)))
+
+	case ir.OpStrSubstr:
+		end := int(toInt(vm.pop()))
+		start := int(toInt(vm.pop()))
+		s := vm.pop()
+		if start < 0 {
+			start = 0
+		}
+		if end > len(s.Str) {
+			end = len(s.Str)
+		}
+		if start >= end {
+			vm.push(StrValue(""))
+		} else {
+			vm.push(StrValue(s.Str[start:end]))
+		}
+
+	case ir.OpStrStartsWith:
+		prefix := vm.pop()
+		s := vm.pop()
+		vm.push(BoolValue(strings.HasPrefix(s.Str, prefix.Str)))
+
+	case ir.OpStrEndsWith:
+		suffix := vm.pop()
+		s := vm.pop()
+		vm.push(BoolValue(strings.HasSuffix(s.Str, suffix.Str)))
+
+	case ir.OpStrReplace:
+		new := vm.pop()
+		old := vm.pop()
+		s := vm.pop()
+		vm.push(StrValue(strings.ReplaceAll(s.Str, old.Str, new.Str)))
+
+	case ir.OpStrIndexOf:
+		sub := vm.pop()
+		s := vm.pop()
+		idx := strings.Index(s.Str, sub.Str)
+		vm.push(IntValue(int64(idx)))
+
+	case ir.OpStrToUpper:
+		s := vm.pop()
+		vm.push(StrValue(strings.ToUpper(s.Str)))
+
+	case ir.OpStrToLower:
+		s := vm.pop()
+		vm.push(StrValue(strings.ToLower(s.Str)))
+
+	case ir.OpOrd:
+		ch := vm.pop()
+		s := toString(ch)
+		if len(s) > 0 {
+			vm.push(IntValue(int64(s[0])))
+		} else {
+			vm.push(IntValue(0))
+		}
+
+	case ir.OpChr:
+		code := int(toInt(vm.pop()))
+		if code >= 0 && code <= 0x10FFFF {
+			vm.push(IntValue(int64(code)))
+		} else {
+			vm.push(IntValue(0))
+		}
+
+	case ir.OpCharAt:
+		idx := int(toInt(vm.pop()))
+		s := vm.pop()
+		if idx >= 0 && idx < len(s.Str) {
+			vm.push(IntValue(int64(s.Str[idx])))
+		} else {
+			vm.push(IntValue(0))
+		}
+
+	// --- Array builtins ---
+	case ir.OpArrayPush:
+		item := vm.pop()
+		arr := vm.pop()
+		newArr := make([]Value, len(arr.Arr)+1)
+		copy(newArr, arr.Arr)
+		newArr[len(arr.Arr)] = item
+		vm.push(ArrayValue(newArr))
+
+	case ir.OpArrayHead:
+		arr := vm.pop()
+		if len(arr.Arr) == 0 {
+			vm.push(NilValue())
+		} else {
+			vm.push(arr.Arr[0])
+		}
+
+	case ir.OpArrayTail:
+		arr := vm.pop()
+		if len(arr.Arr) <= 1 {
+			vm.push(ArrayValue(nil))
+		} else {
+			tail := make([]Value, len(arr.Arr)-1)
+			copy(tail, arr.Arr[1:])
+			vm.push(ArrayValue(tail))
+		}
+
+	// --- Map builtins ---
+	case ir.OpMapValues:
+		m := vm.pop()
+		vals := make([]Value, 0, len(m.M))
+		for _, v := range m.M {
+			vals = append(vals, v)
+		}
+		vm.push(ArrayValue(vals))
+
+	case ir.OpMapDelete:
+		key := vm.pop()
+		m := vm.pop()
+		newMap := make(map[string]Value, len(m.M))
+		for k, v := range m.M {
+			if k != toString(key) {
+				newMap[k] = v
+			}
+		}
+		vm.push(MapValue(newMap))
+
+	// --- Type / conversion ---
+	case ir.OpTypeOf:
+		v := vm.pop()
+		typeName := "unknown"
+		switch v.Type {
+		case ValInt:
+			typeName = "int"
+		case ValFloat:
+			typeName = "float"
+		case ValBool:
+			typeName = "bool"
+		case ValString:
+			typeName = "string"
+		case ValArray:
+			typeName = "array"
+		case ValMap:
+			typeName = "map"
+		case ValResult:
+			typeName = "result"
+		case ValClass:
+			typeName = "class"
+		case ValFunc:
+			typeName = "fn"
+		case ValNil:
+			typeName = "nil"
+		case ValChar:
+			typeName = "char"
+		}
+		vm.push(StrValue(typeName))
+
+	case ir.OpParseInt:
+		s := vm.pop()
+		n, err := strconv.ParseInt(strings.TrimSpace(s.Str), 10, 64)
+		if err != nil {
+			vm.push(IntValue(0))
+		} else {
+			vm.push(IntValue(n))
+		}
+
+	case ir.OpParseFloat:
+		s := vm.pop()
+		f, err := strconv.ParseFloat(strings.TrimSpace(s.Str), 64)
+		if err != nil {
+			vm.push(FloatValue(0))
+		} else {
+			vm.push(FloatValue(f))
+		}
+
+	// --- File I/O builtins ---
+	case ir.OpReadFile:
+		path := vm.pop()
+		data, err := os.ReadFile(path.Str)
+		if err != nil {
+			vm.push(StrValue(""))
+		} else {
+			vm.push(StrValue(string(data)))
+		}
+
+	case ir.OpWriteFile:
+		content := vm.pop()
+		path := vm.pop()
+		os.WriteFile(path.Str, []byte(content.Str), 0644)
+
+	case ir.OpAppendFile:
+		content := vm.pop()
+		path := vm.pop()
+		f, err := os.OpenFile(path.Str, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err == nil {
+			f.WriteString(content.Str)
+			f.Close()
+		}
+
+	case ir.OpFileExists:
+		path := vm.pop()
+		_, err := os.Stat(path.Str)
+		vm.push(BoolValue(err == nil))
+
+	case ir.OpMkDir:
+		path := vm.pop()
+		os.MkdirAll(path.Str, 0755)
+
+	case ir.OpRemoveFile:
+		path := vm.pop()
+		os.Remove(path.Str)
+
+	case ir.OpRenameFile:
+		newPath := vm.pop()
+		oldPath := vm.pop()
+		os.Rename(oldPath.Str, newPath.Str)
+
+	case ir.OpReadDir:
+		path := vm.pop()
+		entries, err := os.ReadDir(path.Str)
+		if err != nil {
+			vm.push(ArrayValue(nil))
+		} else {
+			names := make([]Value, len(entries))
+			for i, e := range entries {
+				names[i] = StrValue(e.Name())
+			}
+			vm.push(ArrayValue(names))
+		}
+
+	case ir.OpCwd:
+		dir, err := os.Getwd()
+		if err != nil {
+			vm.push(StrValue(""))
+		} else {
+			vm.push(StrValue(dir))
+		}
+
+	// --- Process builtins ---
+	case ir.OpArgs:
+		args := make([]Value, len(os.Args))
+		for i, a := range os.Args {
+			args[i] = StrValue(a)
+		}
+		vm.push(ArrayValue(args))
+
+	case ir.OpExec:
+		// Pop all args, then the command
+		argc := int(inst.Arg.Int)
+		cmdArgs := make([]string, argc)
+		for i := argc - 1; i >= 0; i-- {
+			cmdArgs[i] = toString(vm.pop())
+		}
+		cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+		err := cmd.Run()
+		if err != nil {
+			vm.push(IntValue(-1))
+		} else {
+			vm.push(IntValue(0))
+		}
+
+	case ir.OpExecOutput:
+		argc := int(inst.Arg.Int)
+		cmdArgs := make([]string, argc)
+		for i := argc - 1; i >= 0; i-- {
+			cmdArgs[i] = toString(vm.pop())
+		}
+		cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+		out, err := cmd.Output()
+		if err != nil {
+			vm.push(StrValue(""))
+		} else {
+			vm.push(StrValue(string(out)))
+		}
+
+	// --- Environment builtins ---
+	case ir.OpGetEnv:
+		key := vm.pop()
+		vm.push(StrValue(os.Getenv(key.Str)))
+
+	case ir.OpSetEnv:
+		val := vm.pop()
+		key := vm.pop()
+		os.Setenv(key.Str, val.Str)
+
+	// --- TCP builtins ---
+	case ir.OpTCPListen:
+		port := int(toInt(vm.pop()))
+		host := vm.pop()
+		ln, err := net.Listen("tcp", host.Str+":"+strconv.Itoa(port))
+		if err != nil {
+			vm.push(IntValue(-1))
+		} else {
+			vm.push(IntValue(int64(ln.Addr().(*net.TCPAddr).Port)))
+		}
+
+	case ir.OpTCPAccept:
+		handle := int(toInt(vm.pop()))
+		_ = handle
+		vm.push(IntValue(0))
+
+	case ir.OpTCPRead:
+		maxBytes := int(toInt(vm.pop()))
+		handle := int(toInt(vm.pop()))
+		_ = handle
+		_ = maxBytes
+		vm.push(StrValue(""))
+
+	case ir.OpTCPWrite:
+		data := vm.pop()
+		handle := int(toInt(vm.pop()))
+		_ = handle
+		_ = data
+		vm.push(IntValue(0))
+
+	case ir.OpTCPClose:
+		handle := int(toInt(vm.pop()))
+		_ = handle
+		vm.push(BoolValue(true))
+
+	// --- Misc builtins ---
+	case ir.OpExit:
+		code := int(toInt(vm.pop()))
+		os.Exit(code)
+		return NilValue(), nil
+
+	case ir.OpPanic:
+		msg := vm.pop()
+		return NilValue(), fmt.Errorf("panic: %s", toString(msg))
+
+	// --- Closure support ---
+	case ir.OpMakeClosure:
+		fnName := inst.Label
+		fn, ok := vm.funcs[fnName]
+		if !ok {
+			return NilValue(), fmt.Errorf("closure function %q not found", fnName)
+		}
+		n := int(inst.Arg.Int)
+		captures := make([]Value, n)
+		for i := n - 1; i >= 0; i-- {
+			captures[i] = vm.pop()
+		}
+		vm.push(Value{Type: ValFunc, Func: fn, Captures: captures})
+
+	case ir.OpCallFunc:
+		argc := int(inst.Arg.Int)
+		// Stack: [fn, arg0, arg1, ...]. fn was pushed first, args on top.
+		// Pop args first (top of stack), then fn value.
+		args := make([]Value, argc)
+		for i := argc - 1; i >= 0; i-- {
+			args[i] = vm.pop()
+		}
+		fnVal := vm.pop()
+		if fnVal.Type != ValFunc || fnVal.Func == nil {
+			return NilValue(), fmt.Errorf("cannot call non-function value")
+		}
+		result, err := vm.callFunction(fnVal.Func, args, fnVal.Captures)
+		if err != nil {
+			return NilValue(), err
+		}
+		vm.push(result)
+
 	default:
 		return NilValue(), fmt.Errorf("unknown op: %s", inst.Op)
 	}
@@ -639,7 +1021,7 @@ func (vm *VM) exec(inst *ir.Inst) (Value, error) {
 	return NilValue(), nil
 }
 
-func (vm *VM) callFunction(fn *ir.Function, args []Value) (Value, error) {
+func (vm *VM) callFunction(fn *ir.Function, args []Value, captures []Value) (Value, error) {
 	locals := make([]Value, len(fn.Locals))
 	for i, l := range fn.Locals {
 		if l.Type == ir.IRInt {
@@ -654,6 +1036,18 @@ func (vm *VM) callFunction(fn *ir.Function, args []Value) (Value, error) {
 	for i := range fn.Params {
 		if i < len(args) {
 			locals[i] = args[i]
+		}
+	}
+
+	// Copy captured variables into their assigned local slots
+	for i, name := range fn.Captures {
+		if i < len(captures) {
+			for j, l := range fn.Locals {
+				if l.Name == name {
+					locals[j] = captures[i]
+					break
+				}
+			}
 		}
 	}
 
@@ -684,7 +1078,7 @@ func (vm *VM) callFunction(fn *ir.Function, args []Value) (Value, error) {
 
 	vm.frames = vm.frames[:len(vm.frames)-1]
 
-	if result.Type == ValFunc && result.Func != nil {
+	if result.Type == ValFunc && result.Func == nil {
 		return NilValue(), nil
 	}
 	return result, nil
