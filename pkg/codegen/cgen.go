@@ -1743,7 +1743,9 @@ func (g *CGenerator) generateClosureExpression(fn *ast.FunctionLiteral) string {
 			g.writeln(fmt.Sprintf("%s->%s = %s;", envVar, c.Name, g.safeName(c.Name)))
 		}
 	}
-	g.writeln(fmt.Sprintf("%s %s = { .env = %s, .fn_ptr = %s };", closureType, clVar, envVar, fnName))
+	fnPtrCastSig := strings.Join(append([]string{"void*"}, paramTypes...), ", ")
+	g.writeln(fmt.Sprintf("%s %s = { .env = %s, .fn_ptr = (%s (*)(%s))%s };",
+		closureType, clVar, envVar, retType, fnPtrCastSig, fnName))
 	g.declareVar(clVar, closureType, false, false)
 	g.lastClosureType = closureType
 
