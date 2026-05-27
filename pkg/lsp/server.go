@@ -32,10 +32,11 @@ func RunServer() {
 	}
 
 	handler = protocol.Handler{
-		Initialize:  initialize,
-		Initialized: initialized,
-		Shutdown:    shutdown,
-		SetTrace:    setTrace,
+		Initialize:    initialize,
+		Initialized:   initialized,
+		Shutdown:      shutdown,
+		SetTrace:      setTrace,
+		CancelRequest: cancelRequest,
 	}
 
 	handler.TextDocumentDidOpen = textDocumentDidOpen
@@ -49,6 +50,7 @@ func RunServer() {
 	handler.TextDocumentReferences = textDocumentReferences
 	handler.TextDocumentDocumentHighlight = textDocumentDocumentHighlight
 	handler.TextDocumentCodeAction = textDocumentCodeAction
+	handler.WorkspaceDidChangeWatchedFiles = workspaceDidChangeWatchedFiles
 
 	srv := server.NewServer(&handler, serverName, false)
 	_ = srv.RunStdio()
@@ -85,6 +87,18 @@ func shutdown(context *glsp.Context) error {
 
 func setTrace(context *glsp.Context, params *protocol.SetTraceParams) error {
 	protocol.SetTraceValue(params.Value)
+	return nil
+}
+
+func cancelRequest(context *glsp.Context, params *protocol.CancelParams) error {
+	// $/cancelRequest is a notification from the client to cancel a pending request.
+	// Since the server processes requests synchronously, cancellation is a no-op.
+	return nil
+}
+
+func workspaceDidChangeWatchedFiles(context *glsp.Context, params *protocol.DidChangeWatchedFilesParams) error {
+	// workspace/didChangeWatchedFiles is a notification. File changes in the workspace
+	// are handled via textDocument/didChange for open documents, so this is a no-op.
 	return nil
 }
 
