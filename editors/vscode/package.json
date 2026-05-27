@@ -3,6 +3,7 @@
   "displayName": "Carv Language Support",
   "description": "Language support for Carv - a memory-safe language for embedded systems",
   "version": "0.1.0",
+  "icon": "icon.png",
   "publisher": "dev-dami",
   "repository": {
     "type": "git",
@@ -26,7 +27,11 @@
         "id": "carv",
         "aliases": ["Carv", "carv"],
         "extensions": [".carv"],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "file-icon.png",
+          "dark": "file-icon.png"
+        }
       }
     ],
     "grammars": [
