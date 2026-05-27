@@ -2200,6 +2200,22 @@ match result {
 	}
 }
 
+func TestMatchExpressionAllowsEmptyArmBlocks(t *testing.T) {
+	output := generateOutputFromSource(t, `
+fn f() {
+	return Ok(1);
+}
+let r = f();
+match r {
+	Ok(v) => {},
+	Err(e) => {},
+};
+`)
+	if strings.Contains(output, "= ;") {
+		t.Fatalf("expected match empty arm blocks to emit valid assignment, got:\n%s", output)
+	}
+}
+
 func TestContinueStatement(t *testing.T) {
 	output := generateOutputFromSource(t, `
 for (let i = 0; i < 10; i = i + 1) {

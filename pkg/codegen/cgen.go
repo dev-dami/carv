@@ -3211,8 +3211,30 @@ func (g *CGenerator) generateMatchExpression(e *ast.MatchExpression) string {
 			g.addPreamble(fmt.Sprintf("%s{", prefix))
 		}
 
-		bodyExpr := g.generateExpression(arm.Body)
-		g.addPreamble(fmt.Sprintf("%s = %s;", resultName, bodyExpr))
+		if blockExpr, isBlock := arm.Body.(*ast.BlockExpression); isBlock {
+			// Match block-arms are statement-oriented; keep codegen valid even when the
+			// arm body does not produce an expression (e.g. `{}`).
+			if len(blockExpr.Block.Statements) == 0 {
+				g.addPreamble(fmt.Sprintf("%s = %s;", resultName, g.zeroValue(resultType)))
+			} else {
+				assigned := false
+				for _, stmt := range blockExpr.Block.Statements {
+					if es, ok := stmt.(*ast.ExpressionStatement); ok {
+						expr := g.generateExpression(es.Expression)
+						if expr != "" {
+							g.addPreamble(fmt.Sprintf("%s = %s;", resultName, expr))
+							assigned = true
+						}
+					}
+				}
+				if !assigned {
+					g.addPreamble(fmt.Sprintf("%s = %s;", resultName, g.zeroValue(resultType)))
+				}
+			}
+		} else {
+			bodyExpr := g.generateExpression(arm.Body)
+			g.addPreamble(fmt.Sprintf("%s = %s;", resultName, bodyExpr))
+		}
 		g.addPreamble("}")
 		g.exitScope()
 	}

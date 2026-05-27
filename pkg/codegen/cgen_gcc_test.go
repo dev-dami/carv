@@ -85,6 +85,21 @@ match result {
 	compileGeneratedC(t, output)
 }
 
+func TestResultMatchWithEmptyArmBlocksCompiles(t *testing.T) {
+	output := generateOutputFromSource(t, `
+fn f() {
+	return Ok(1);
+}
+
+let r = f();
+match r {
+	Ok(v) => {},
+	Err(e) => {},
+};
+`)
+	compileGeneratedC(t, output)
+}
+
 func TestHALModulesGeneratedCCompiles(t *testing.T) {
 	input := `
 require "gpio" as gpio;
