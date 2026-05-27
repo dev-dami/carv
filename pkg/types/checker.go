@@ -262,10 +262,35 @@ func (c *Checker) warning(line, col int, format string, args ...interface{}) {
 }
 
 func (c *Checker) Check(program *ast.Program) bool {
+	// Pass 1: Define all function signatures so that function bodies can
+	// reference any other function regardless of definition order.
+	for _, stmt := range program.Statements {
+		if fn, ok := stmt.(*ast.FunctionStatement); ok {
+			c.defineFunctionSignature(fn)
+		}
+	}
+	// Pass 2: Check all statements (function bodies, classes, top-level code).
 	for _, stmt := range program.Statements {
 		c.checkStatement(stmt)
 	}
 	return len(c.errors) == 0
+}
+
+// defineFunctionSignature resolves the parameter and return types and defines
+// the function name in the current scope.  It does NOT check the function body.
+func (c *Checker) defineFunctionSignature(s *ast.FunctionStatement) {
+	paramTypes := c.resolveParameterTypes(s.Parameters)
+	var retType Type = Void
+	if s.ReturnType != nil {
+		retType = c.resolveTypeExpr(s.ReturnType)
+	}
+	fnRetType := retType
+	if s.Async {
+		fnRetType = &FutureType{Inner: retType}
+	}
+	fnType := &FunctionType{Params: paramTypes, Return: fnRetType}
+	line, col := s.Pos()
+	c.scope.DefineWithPos(s.Name.Value, fnType, line, col)
 }
 
 func (c *Checker) checkStatement(stmt ast.Statement) {
@@ -369,22 +394,8 @@ func (c *Checker) checkConstStatement(s *ast.ConstStatement) {
 }
 
 func (c *Checker) checkFunctionStatement(s *ast.FunctionStatement) {
-	paramTypes := c.resolveParameterTypes(s.Parameters)
-
-	var retType Type = Void
-	if s.ReturnType != nil {
-		retType = c.resolveTypeExpr(s.ReturnType)
-	}
-
-	fnRetType := retType
-	if s.Async {
-		fnRetType = &FutureType{Inner: retType}
-	}
-
-	fnType := &FunctionType{Params: paramTypes, Return: fnRetType}
-	line, col := s.Pos()
-	c.scope.DefineWithPos(s.Name.Value, fnType, line, col)
-
+	// Signature was already defined in Check() pass 1.
+	// Now push a new scope for the body and check it.
 	prevScope := c.scope
 	prevOwnership := c.pushOwnership()
 	prevBorrows := c.pushBorrows()
@@ -392,6 +403,7 @@ func (c *Checker) checkFunctionStatement(s *ast.FunctionStatement) {
 	c.scope = NewScope(prevScope)
 	c.inAsyncFn = s.Async
 
+	paramTypes := c.resolveParameterTypes(s.Parameters)
 	for i, p := range s.Parameters {
 		pl, pc := p.Pos()
 		c.scope.DefineWithPos(p.Name.Value, paramTypes[i], pl, pc)
@@ -563,6 +575,8 @@ func (c *Checker) checkExpression(expr ast.Expression) Type {
 		t = c.checkCastExpression(e)
 	case *ast.AwaitExpression:
 		t = c.checkAwaitExpression(e)
+	case *ast.PipeExpression:
+		t = c.checkPipeExpression(e)
 	default:
 		t = Any
 	}
@@ -743,6 +757,80 @@ func (c *Checker) checkCallExpression(e *ast.CallExpression) Type {
 	}
 
 	return ft.Return
+}
+
+// checkPipeExpression type-checks a |> f(b) as if it were f(a, b).
+// For a |> ident it checks ident(a).
+func (c *Checker) checkPipeExpression(e *ast.PipeExpression) Type {
+	leftType := c.checkExpression(e.Left)
+
+	switch right := e.Right.(type) {
+	case *ast.CallExpression:
+		// a |> f(b, c): check f(a, b, c) by checking the function then all args
+		fnType := c.checkExpression(right.Function)
+		ft, ok := fnType.(*FunctionType)
+		if !ok {
+			return Any
+		}
+		// Check the piped value first
+		if len(ft.Params) > 0 {
+			paramType := ft.Params[0]
+			if !paramType.Equals(Any) && !c.isAssignable(paramType, leftType) {
+				line, col := e.Left.Pos()
+				c.error(line, col, "cannot pipe %s to function expecting %s", leftType.String(), paramType.String())
+			}
+		}
+		// Check remaining arguments
+		for i, arg := range right.Arguments {
+			argType := c.checkExpression(arg)
+			idx := i + 1
+			if idx < len(ft.Params) {
+				paramType := ft.Params[idx]
+				if !paramType.Equals(Any) && !c.isAssignable(paramType, argType) {
+					line, col := arg.Pos()
+					c.error(line, col, "argument %d: cannot pass %s as %s", idx+1, argType.String(), paramType.String())
+				}
+			}
+		}
+		return ft.Return
+
+	case *ast.Identifier:
+		// a |> f: check f(a)
+		fnType := c.checkExpression(right)
+		ft, ok := fnType.(*FunctionType)
+		if !ok {
+			return Any
+		}
+		if len(ft.Params) > 0 {
+			paramType := ft.Params[0]
+			if !paramType.Equals(Any) && !c.isAssignable(paramType, leftType) {
+				line, col := e.Left.Pos()
+				c.error(line, col, "cannot pipe %s to function expecting %s", leftType.String(), paramType.String())
+			}
+		}
+		return ft.Return
+
+	case *ast.MemberExpression:
+		// a |> obj.method: check obj.method(a)
+		fnType := c.checkMemberExpression(right)
+		ft, ok := fnType.(*FunctionType)
+		if !ok {
+			return Any
+		}
+		if len(ft.Params) > 0 {
+			paramType := ft.Params[0]
+			if !paramType.Equals(Any) && !c.isAssignable(paramType, leftType) {
+				line, col := e.Left.Pos()
+				c.error(line, col, "cannot pipe %s to method expecting %s", leftType.String(), paramType.String())
+			}
+		}
+		return ft.Return
+
+	default:
+		// a |> expr: check expr then assume it's callable
+		c.checkExpression(right)
+		return Any
+	}
 }
 
 func (c *Checker) isVariadicFunction(e *ast.CallExpression) bool {
