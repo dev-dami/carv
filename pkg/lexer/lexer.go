@@ -114,6 +114,9 @@ func (l *Lexer) NextToken() Token {
 		} else if l.peekChar() == '=' {
 			l.readChar()
 			tok = Token{Type: TOKEN_VBAR_EQ, Literal: "|=", Line: tok.Line, Column: tok.Column}
+		} else if l.peekChar() == '>' {
+			l.readChar()
+			tok = Token{Type: TOKEN_PIPE, Literal: "|>", Line: tok.Line, Column: tok.Column}
 		} else {
 			tok = l.newToken(TOKEN_VBAR, l.ch)
 		}

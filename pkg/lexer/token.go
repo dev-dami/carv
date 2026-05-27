@@ -55,6 +55,9 @@ const (
 	TOKEN_VBAR_EQ      // |=
 	TOKEN_CARET_EQ     // ^=
 
+	// Pipe operator
+	TOKEN_PIPE // |>
+
 	// Delimiters
 	TOKEN_LPAREN    // (
 	TOKEN_RPAREN    // )
@@ -199,6 +202,7 @@ var tokenNames = map[TokenType]string{
 	TOKEN_AMPERSAND_EQ: "&=",
 	TOKEN_VBAR_EQ:      "|=",
 	TOKEN_CARET_EQ:     "^=",
+	TOKEN_PIPE:         "|>",
 
 	TOKEN_LPAREN:    "(",
 	TOKEN_RPAREN:    ")",
