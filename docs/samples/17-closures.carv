@@ -1,24 +1,49 @@
-// Lesson 17: Function Composition
-// Functions can be combined and passed around.
+// Lesson 17: Closures and Pipe Operator
+// Anonymous functions can capture variables from their enclosing scope.
+// The |> operator pipes a value into a function call.
 
-fn double(x: int) -> int {
-    return x * 2;
+// --- Anonymous functions (closures without captures) ---
+
+let double = fn(x: int) -> int { return x * 2; };
+println(f"double(5) = {double(5)}");
+
+// --- Closures with captures ---
+
+fn make_multiplier(factor: int) {
+    return fn(x: int) -> int { return x * factor; };
 }
 
-fn add_ten(x: int) -> int {
-    return x + 10;
+let triple = make_multiplier(3);
+let ten_x = make_multiplier(10);
+println(f"triple(7) = {triple(7)}");
+println(f"ten_x(7) = {ten_x(7)}");
+
+// Capture local variables
+let greeting = "Hello";
+let greet = fn(name: string) { println(greeting + " " + name); };
+greet("World");
+
+// --- Pipe operator |> ---
+// Pass the left side as the first argument to the right side.
+
+fn add(a: int, b: int) -> int {
+    return a + b;
 }
 
-// Compose two functions
-fn compose(val: int) -> int {
-    return add_ten(double(val));
-}
+// Simple pipe: 5 |> double  →  double(5)
+let piped = 5 |> double;
+println(f"5 |> double = {piped}");
 
-let result = compose(5);
-println(f"Compose double(5) + 10 = {result}");
+// Pipe with extra args: 5 |> add(3)  →  add(5, 3)
+let sum = 5 |> add(3);
+println(f"5 |> add(3) = {sum}");
 
-// Direct function calls in expressions
-let piped = add_ten(double(20));
-println(f"add_ten(double(20)) = {piped}");
+// Chained pipes: 5 |> add(3) |> double  →  double(add(5, 3))
+let chained = 5 |> add(3) |> double;
+println(f"5 |> add(3) |> double = {chained}");
+
+// Pipe a closure capture
+let ten = 10 |> triple;
+println(f"10 |> triple = {ten}");
 
 println("---");

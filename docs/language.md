@@ -257,8 +257,13 @@ fn greet(name: string) {
     print("Hello, " + name);
 }
 
-// anonymous functions (VM: parsed but not yet executable)
-// let double = fn(x: int) -> int { return x * 2; };
+// anonymous functions
+let double = fn(x: int) -> int { return x * 2; };
+
+// closures with capture
+let msg = "hello";
+let greeter = fn(name: string) { println(msg + " " + name); };
+greeter("world"); // hello world
 ```
 
 ## Async / Await
@@ -288,13 +293,13 @@ async fn carv_main() -> int {
 
 ## Pipe Operator
 
-> **Status**: Planned — parser/IR support not yet implemented.
+> **Status**: ✅ works with `carv run` (VM).
 
-This would pass results through a chain of functions:
+This passes results through a chain of functions:
 
 ```carv
 // instead of: print(add(5, double(x)))
-// x |> double |> add(5) |> print;
+x |> double |> add(5) |> print;
 ```
 
 ## Control Flow
@@ -517,8 +522,7 @@ fn calculate() -> Result {
 
 ## Built-in Functions
 
-Functions marked with ✅ work in `carv run` (VM) and `carv build` (C codegen).
-Unmarked functions only work in `carv build`.
+All functions listed here work in both `carv run` (VM) and `carv build` (C codegen) unless marked otherwise.
 
 ### General
 - `print(...)` ✅ / `println(...)` ✅ - print to stdout
@@ -530,48 +534,55 @@ Unmarked functions only work in `carv build`.
 - `float(x)` ✅ - convert to float
 - `readline()` ✅ - read a line from stdin
 - `assert(condition)` ✅ - panic if false
-- `type_of(x)` - get type as string
-- `str(x)` - alias for `string()` (C codegen only)
+- `type_of(x)` ✅ - get type as string
+- `str(x)` ✅ - alias for `string()`
 
 ### Arrays
-- `push(arr, item)` - return new array with item appended
-- `head(arr)` - first element
-- `tail(arr)` - all elements except first
+- `push(arr, item)` ✅ - return new array with item appended
+- `head(arr)` ✅ - first element
+- `tail(arr)` ✅ - all elements except first
 
 ### Strings
-- `split(str, sep)` - split string into array
-- `join(arr, sep)` - join array into string
-- `trim(str)` - remove whitespace
-- `substr(str, start, end?)` - substring
-- `starts_with(str, prefix)` - check prefix
-- `ends_with(str, suffix)` - check suffix
-- `replace(str, old, new)` - replace all occurrences
-- `index_of(str, substr)` - find index (-1 if not found)
-- `to_upper(str)` / `to_lower(str)` - case conversion
-- `ord(char)` - character to ASCII code
-- `chr(int)` - ASCII code to character
-- `char_at(str, idx)` - get character at index
+- `split(str, sep)` ✅ - split string into array
+- `join(arr, sep)` ✅ - join array into string
+- `trim(str)` ✅ - remove whitespace
+- `substr(str, start, end)` ✅ - substring
+- `starts_with(str, prefix)` ✅ - check prefix
+- `ends_with(str, suffix)` ✅ - check suffix
+- `replace(str, old, new)` ✅ - replace all occurrences
+- `index_of(str, substr)` ✅ - find index (-1 if not found)
+- `to_upper(str)` ✅ / `to_lower(str)` ✅ - case conversion
+- `ord(char)` ✅ - character to ASCII code
+- `chr(int)` ✅ - ASCII code to character
+- `char_at(str, idx)` ✅ - get character at index
 
 ### Parsing
-- `parse_int(str)` - parse string as integer
-- `parse_float(str)` - parse string as float
+- `parse_int(str)` ✅ - parse string as integer
+- `parse_float(str)` ✅ - parse string as float
 
 ### Maps
-- `values(map)` - get all values as array
-- `has_key(map, key)` - check if key exists
-- `set(map, key, value)` - return new map with key set
-- `delete(map, key)` - return new map with key removed
+- `values(map)` ✅ - get all values as array
+- `has_key(map, key)` ✅ - check if key exists
+- `set(map, key, value)` ✅ - return new map with key set
+- `delete(map, key)` ✅ - return new map with key removed
 
 ### File I/O
-- `read_file(path)` - read file contents
-- `write_file(path, content)` - write to file
-- `append_file(path, content)` - append to file
-- `file_exists(path)` - check if file exists
-- `mkdir(path)` - create directory
-- `delete_file(path)` - delete file
-- `rename_file(old_path, new_path)` - rename/move file
-- `list_dir(path)` - list directory entries
-- `cwd()` - current working directory
+- `read_file(path)` ✅ - read file contents
+- `write_file(path, content)` ✅ - write to file
+- `append_file(path, content)` ✅ - append to file
+- `file_exists(path)` ✅ - check if file exists
+- `mkdir(path)` ✅ - create directory
+- `remove_file(path)` ✅ - delete file
+- `rename_file(old_path, new_path)` ✅ - rename/move file
+- `read_dir(path)` ✅ - list directory entries
+- `cwd()` ✅ - current working directory
+
+### Process & Environment
+- `args()` ✅ - get CLI arguments
+- `exec(cmd, ...args)` ✅ - run command, return exit code
+- `exec_output(cmd, ...args)` ✅ - run command, capture stdout
+- `getenv(key)` ✅ - get environment variable
+- `setenv(key, value)` ✅ - set environment variable
 
 ### Networking (TCP)
 - Import built-in module: `require "net" as net;` (or `require "web" as web;`)
@@ -581,12 +592,7 @@ Unmarked functions only work in `carv build`.
 - `net.tcp_write(conn, data)` - write string, return bytes written
 - `net.tcp_close(handle)` - close listener/connection handle
 
-### Process & Environment
-- `args()` - get CLI arguments
-- `exec(cmd, ...args)` - run command, return exit code
-- `exec_output(cmd, ...args)` - run command, return `Ok(stdout)` / `Err(stderr)`
-- `getenv(key)` - get environment variable
-- `setenv(key, value)` - set environment variable
+> **Note**: The TCP networking functions are registered in the type checker and work with C codegen but have stub implementations in the VM.
 
 ### Control Flow
 - `exit(code?)` - exit program

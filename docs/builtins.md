@@ -7,8 +7,7 @@
 Reference for all built-in functions available in Carv.
 
 > **Status key**: ✅ = works with `carv run` (VM) and `carv build` (C codegen).
-> No marker = only works with `carv build` (C codegen). These are registered in the type
-> checker for `carv build` but will produce a runtime error in `carv run`.
+> Functions without the marker only work with `carv build` (C codegen).
 
 ## Output
 
@@ -56,13 +55,13 @@ Convert to float.
 float(42)  // 42.0
 ```
 
-### `type_of(value) -> string`
-Get the type of a value as a string. C codegen only.
+### `type_of(value) -> string` ✅
+Get the type of a value as a string.
 
 ```carv
-type_of(42)        // "INTEGER"
-type_of("hello")   // "STRING"
-type_of([1,2,3])   // "ARRAY"
+type_of(42)        // "int"
+type_of("hello")   // "string"
+type_of([1,2,3])   // "array"
 ```
 
 ## Collections
@@ -106,8 +105,8 @@ Read a line from stdin.
 let input = readline();
 ```
 
-### `push(array, item) -> array`
-Return new array with item appended. C codegen only.
+### `push(array, item) -> array` ✅
+Return new array with item appended.
 
 ```carv
 let a = [1, 2];
@@ -115,16 +114,16 @@ let b = push(a, 3);  // [1, 2, 3]
 // a is still [1, 2]
 ```
 
-### `head(array) -> any`
-Get first element of array. C codegen only.
+### `head(array) -> any` ✅
+Get first element of array.
 
 ```carv
 head([1, 2, 3])  // 1
 head([])         // nil
 ```
 
-### `tail(array) -> array`
-Get all elements except the first. C codegen only.
+### `tail(array) -> array` ✅
+Get all elements except the first.
 
 ```carv
 tail([1, 2, 3])  // [2, 3]
@@ -133,16 +132,16 @@ tail([1])        // []
 
 ## Maps
 
-### `values(map) -> array`
-Get all values from a map. C codegen only.
+### `values(map) -> array` ✅
+Get all values from a map.
 
 ```carv
 let m = {"a": 1, "b": 2};
 values(m)  // [1, 2]
 ```
 
-### `has_key(map, key) -> bool`
-Check if key exists in map. C codegen only.
+### `has_key(map, key) -> bool` ✅
+Check if key exists in map.
 
 ```carv
 let m = {"a": 1};
@@ -150,16 +149,16 @@ has_key(m, "a")  // true
 has_key(m, "b")  // false
 ```
 
-### `set(map, key, value) -> map`
-Return new map with key set to value. C codegen only.
+### `set(map, key, value) -> map` ✅
+Return new map with key set to value.
 
 ```carv
 let m = {"a": 1};
 let m2 = set(m, "b", 2);  // {"a": 1, "b": 2}
 ```
 
-### `delete(map, key) -> map`
-Return new map with key removed. C codegen only.
+### `delete(map, key) -> map` ✅
+Return new map with key removed.
 
 ```carv
 let m = {"a": 1, "b": 2};
@@ -168,95 +167,94 @@ let m2 = delete(m, "a");  // {"b": 2}
 
 ## Strings
 
-### `split(str, separator) -> array`
-Split string into array. C codegen only.
+### `split(str, separator) -> array` ✅
+Split string into array.
 
 ```carv
 split("a,b,c", ",")  // ["a", "b", "c"]
 ```
 
-### `join(array, separator) -> string`
-Join array into string. C codegen only.
+### `join(array, separator) -> string` ✅
+Join array into string.
 
 ```carv
 join(["a", "b", "c"], "-")  // "a-b-c"
 ```
 
-### `trim(str) -> string`
-Remove leading/trailing whitespace. C codegen only.
+### `trim(str) -> string` ✅
+Remove leading/trailing whitespace.
 
 ```carv
 trim("  hello  ")  // "hello"
 ```
 
-### `substr(str, start, end?) -> string`
-Get substring. End is optional. C codegen only.
+### `substr(str, start, end) -> string` ✅
+Get substring.
 
 ```carv
 substr("hello", 0, 2)  // "he"
-substr("hello", 2)     // "llo"
 ```
 
-### `starts_with(str, prefix) -> bool`
-Check if string starts with prefix. C codegen only.
+### `starts_with(str, prefix) -> bool` ✅
+Check if string starts with prefix.
 
 ```carv
 starts_with("hello", "he")  // true
 ```
 
-### `ends_with(str, suffix) -> bool`
-Check if string ends with suffix. C codegen only.
+### `ends_with(str, suffix) -> bool` ✅
+Check if string ends with suffix.
 
 ```carv
 ends_with("hello", "lo")  // true
 ```
 
-### `replace(str, old, new) -> string`
-Replace all occurrences. C codegen only.
+### `replace(str, old, new) -> string` ✅
+Replace all occurrences.
 
 ```carv
 replace("hello", "l", "L")  // "heLLo"
 ```
 
-### `index_of(str, substr) -> int`
-Find index of substring. Returns -1 if not found. C codegen only.
+### `index_of(str, substr) -> int` ✅
+Find index of substring. Returns -1 if not found.
 
 ```carv
 index_of("hello", "l")   // 2
 index_of("hello", "x")   // -1
 ```
 
-### `to_upper(str) -> string`
-Convert to uppercase. C codegen only.
+### `to_upper(str) -> string` ✅
+Convert to uppercase.
 
 ```carv
 to_upper("hello")  // "HELLO"
 ```
 
-### `to_lower(str) -> string`
-Convert to lowercase. C codegen only.
+### `to_lower(str) -> string` ✅
+Convert to lowercase.
 
 ```carv
 to_lower("HELLO")  // "hello"
 ```
 
-### `ord(char) -> int`
-Get ASCII code of character. C codegen only.
+### `ord(char) -> int` ✅
+Get ASCII code of character.
 
 ```carv
 ord('A')     // 65
 ord("A")     // 65 (takes first char)
 ```
 
-### `chr(int) -> char`
-Get character from ASCII code. C codegen only.
+### `chr(int) -> char` ✅
+Get character from ASCII code.
 
 ```carv
 chr(65)  // 'A'
 ```
 
-### `char_at(str, index) -> char`
-Get character at index. C codegen only.
+### `char_at(str, index) -> char` ✅
+Get character at index.
 
 ```carv
 char_at("hello", 1)  // 'e'
@@ -264,16 +262,16 @@ char_at("hello", 1)  // 'e'
 
 ## Parsing
 
-### `parse_int(str) -> int`
-Parse a string as an integer. C codegen only.
+### `parse_int(str) -> int` ✅
+Parse a string as an integer.
 
 ```carv
 parse_int("42")    // 42
 parse_int("-10")   // -10
 ```
 
-### `parse_float(str) -> float`
-Parse a string as a float. C codegen only.
+### `parse_float(str) -> float` ✅
+Parse a string as a float.
 
 ```carv
 parse_float("3.14")   // 3.14
@@ -282,12 +280,107 @@ parse_float("2.0")    // 2
 
 ## Process & Environment
 
-### `args() -> array`
-Get command-line arguments passed to the script. C codegen only.
+### `args() -> array` ✅
+Get command-line arguments passed to the script.
 
 ```carv
 let a = args();
 print(a);   // ["arg1", "arg2", ...]
+```
+
+### `exec(command, ...args) -> int` ✅
+Run an external command. Returns the exit code.
+
+```carv
+let code = exec("echo", "hello");  // prints "hello", returns 0
+```
+
+### `exec_output(command, ...args) -> string` ✅
+Run an external command and capture its stdout output.
+
+```carv
+let out = exec_output("echo", "hello");
+```
+
+### `getenv(key) -> string` ✅
+Get an environment variable. Returns empty string if not set.
+
+```carv
+let home = getenv("HOME");
+```
+
+### `setenv(key, value)` ✅
+Set an environment variable.
+
+```carv
+setenv("MY_VAR", "hello");
+```
+
+## File I/O
+
+### `read_file(path) -> string` ✅
+Read entire file contents.
+
+```carv
+let content = read_file("data.txt");
+```
+
+### `write_file(path, content)` ✅
+Write string to file.
+
+```carv
+write_file("out.txt", "hello");
+```
+
+### `append_file(path, content)` ✅
+Append string to file. Creates the file if it doesn't exist.
+
+```carv
+append_file("log.txt", "new line\n");
+```
+
+### `file_exists(path) -> bool` ✅
+Check if file exists.
+
+```carv
+if file_exists("config.txt") {
+    // ...
+}
+```
+
+### `mkdir(path)` ✅
+Create a directory (and parent directories).
+
+```carv
+mkdir("build/output");
+```
+
+### `remove_file(path)` ✅
+Delete a file.
+
+```carv
+remove_file("old.txt");
+```
+
+### `rename_file(old, new)` ✅
+Rename or move a file.
+
+```carv
+rename_file("old.txt", "new.txt");
+```
+
+### `read_dir(path) -> array` ✅
+List directory entries.
+
+```carv
+let files = read_dir(".");
+```
+
+### `cwd() -> string` ✅
+Get current working directory.
+
+```carv
+let dir = cwd();
 ```
 
 ### `exec(command, ...args) -> int`
