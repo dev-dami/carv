@@ -1,0 +1,26 @@
+// Lesson 20: Advanced Concepts
+// Putting it all together: functions, arrays, interpolation, and loops.
+
+fn double_values(x: int, y: int) -> int {
+    return (x * 2) + (y * 2);
+}
+
+let a = 10;
+let b = 20;
+let result = double_values(a, b);
+println(f"Twice the sum of {a} and {b} is {result}");
+
+// Arrays and basic iteration
+let items = [1, 2, 3, 4, 5];
+mut total = 0;
+for n in items {
+    total = total + n;
+}
+println(f"Sum of items: {total}");
+
+// String concatenation
+let greeting = "Hello" + " " + "World";
+println(greeting);
+
+println("---");
+println("Congratulations! You've completed the Carv language tour.");
