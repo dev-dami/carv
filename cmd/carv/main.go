@@ -32,27 +32,31 @@ func main() {
 	case "help", "-h", "--help":
 		printUsage()
 	case "build":
-		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: carv build [--target arm] <file.carv>")
-			os.Exit(1)
-		}
 		target := ""
-		fileArg := os.Args[2]
-		if os.Args[2] == "--target" {
+		var fileArg string
+		if len(os.Args) >= 3 && os.Args[2] == "--target" {
 			if len(os.Args) < 5 {
 				fmt.Fprintln(os.Stderr, "usage: carv build --target <arm|host> <file.carv>")
 				os.Exit(1)
 			}
 			target = os.Args[3]
 			fileArg = os.Args[4]
+		} else if len(os.Args) >= 3 {
+			fileArg = os.Args[2]
+		}
+		if fileArg == "" {
+			fileArg = getEntryFile()
 		}
 		buildFile(fileArg, target)
 	case "emit-c":
-		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: carv emit-c <file.carv>")
-			os.Exit(1)
+		fileArg := ""
+		if len(os.Args) >= 3 {
+			fileArg = os.Args[2]
 		}
-		emitC(os.Args[2])
+		if fileArg == "" {
+			fileArg = getEntryFile()
+		}
+		emitC(fileArg)
 	case "init":
 		initProject()
 	case "add":
@@ -62,11 +66,14 @@ func main() {
 	case "install":
 		installPackages()
 	case "run":
-		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: carv run <file.carv>")
-			os.Exit(1)
+		fileArg := ""
+		if len(os.Args) >= 3 {
+			fileArg = os.Args[2]
 		}
-		runFile(os.Args[2])
+		if fileArg == "" {
+			fileArg = getEntryFile()
+		}
+		runFile(fileArg)
 	case "repl":
 		runREPL()
 	case "lsp":
@@ -90,9 +97,9 @@ Usage:
   carv <command> [arguments]
 
 Commands:
-  build <file>    Compile to native binary via C
-  run <file>      Execute via built-in VM
-  emit-c <file>   Output generated C code
+  build <file>    Compile to native binary via C (uses carv.toml entry if no file given)
+  run <file>      Execute via built-in VM (uses carv.toml entry if no file given)
+  emit-c <file>   Output generated C code (uses carv.toml entry if no file given)
   init            Initialize a new Carv project with carv.toml
   repl            Start interactive REPL
   lsp             Start language server for editor integration
@@ -110,9 +117,11 @@ Package Management:
   carv pkg publish           Publish current package to GitHub registry
 
 Examples:
-  carv build hello.carv
-  carv emit-c hello.carv
-  carv hello.carv
+  carv build src/main.carv
+  carv build                (uses package.entry from carv.toml)
+  carv emit-c src/main.carv
+  carv run src/main.carv
+  carv run                  (uses package.entry from carv.toml)
   carv init
   carv add mylib --git https://github.com/user/mylib
   carv remove mylib
@@ -147,12 +156,8 @@ func initProject() {
 	if _, err := os.Stat(mainFile); os.IsNotExist(err) {
 		mainContent := `// Welcome to Carv!
 
-fn main() {
-    let name = "World";
-    println(f"Hello, {name}!");
-}
-
-main();
+let name = "World";
+println(f"Hello, {name}!");
 `
 		if err := os.WriteFile(mainFile, []byte(mainContent), 0o644); err != nil {
 			fmt.Fprintf(os.Stderr, "error creating main.carv: %s\n", err)
@@ -164,6 +169,7 @@ main();
 	fmt.Println("  Created carv.toml")
 	fmt.Println("  Created src/main.carv")
 	fmt.Println("\nBuild your project with:")
+	fmt.Println("  carv build")
 	fmt.Println("  carv build src/main.carv")
 }
 
@@ -319,6 +325,38 @@ func buildFile(filename string, target string) {
 	}
 
 	fmt.Printf("Built %s\n", outFile)
+}
+
+func getEntryFile() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error getting current directory: %s\n", err)
+		os.Exit(1)
+	}
+
+	root, err := module.FindProjectRoot(cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error finding project root: %s\n", err)
+		os.Exit(1)
+	}
+
+	cfg, err := module.LoadConfig(root)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error reading carv.toml: %s\n", err)
+		os.Exit(1)
+	}
+	if cfg == nil {
+		fmt.Fprintln(os.Stderr, "error: no carv.toml found in project")
+		os.Exit(1)
+	}
+
+	entry := cfg.Package.Entry
+	if entry == "" {
+		fmt.Fprintln(os.Stderr, "error: no entry file specified in carv.toml (package.entry)")
+		os.Exit(1)
+	}
+
+	return filepath.Join(root, entry)
 }
 
 func runCmd(name string, args ...string) error {
