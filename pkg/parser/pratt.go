@@ -15,6 +15,7 @@ const (
 	_ precedence = iota
 	LOWEST
 	ASSIGN
+	PIPE   // |>
 	OR
 	AND
 	EQUALS
@@ -42,6 +43,7 @@ var precedences = map[lexer.TokenType]precedence{
 	lexer.TOKEN_AMPERSAND_EQ: ASSIGN,
 	lexer.TOKEN_VBAR_EQ:      ASSIGN,
 	lexer.TOKEN_CARET_EQ:     ASSIGN,
+	lexer.TOKEN_PIPE:         PIPE,
 	lexer.TOKEN_OR:           OR,
 	lexer.TOKEN_AND:          AND,
 	lexer.TOKEN_EQ:           EQUALS,
@@ -211,6 +213,14 @@ func (p *Parser) parsePrefixExpression() ast.Expression {
 	p.nextToken()
 	expr.Right = p.parseExpression(PREFIX)
 	return expr
+}
+
+func (p *Parser) parsePipeExpression(left ast.Expression) ast.Expression {
+	exp := &ast.PipeExpression{Token: p.curToken, Left: left}
+	prec := p.curPrecedence()
+	p.nextToken()
+	exp.Right = p.parseExpression(prec)
+	return exp
 }
 
 func (p *Parser) parseInfixExpression(left ast.Expression) ast.Expression {

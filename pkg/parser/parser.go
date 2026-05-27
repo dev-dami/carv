@@ -82,6 +82,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerInfix(lexer.TOKEN_GT, p.parseInfixExpression)
 	p.registerInfix(lexer.TOKEN_GE, p.parseInfixExpression)
 	p.registerInfix(lexer.TOKEN_AND, p.parseInfixExpression)
+	p.registerInfix(lexer.TOKEN_PIPE, p.parsePipeExpression)
 	p.registerInfix(lexer.TOKEN_OR, p.parseInfixExpression)
 	p.registerInfix(lexer.TOKEN_AMPERSAND, p.parseInfixExpression)
 	p.registerInfix(lexer.TOKEN_VBAR, p.parseInfixExpression)
