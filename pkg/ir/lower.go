@@ -13,6 +13,7 @@ type Lowerer struct {
 	fnReturns     map[string]IRType
 	scope         *lowerScope
 	fn            *Function
+	mod           *Module
 	labelCounter  int
 	loopBreaks    []string
 	loopContinues []string
@@ -43,6 +44,7 @@ func (l *Lowerer) Lower(program *ast.Program) *Module {
 		Functions: make(map[string]*Function),
 		Entry:     "main",
 	}
+	l.mod = mod
 
 	for _, stmt := range program.Statements {
 		if cls, ok := stmt.(*ast.ClassStatement); ok {
@@ -56,6 +58,18 @@ func (l *Lowerer) Lower(program *ast.Program) *Module {
 		}
 	}
 
+	// First pass: register all named functions as empty stubs so that any
+	// function body can reference any other function regardless of definition
+	// order (handles cross-recursion: fn a() calls fn b() and vice versa).
+	for _, stmt := range program.Statements {
+		if fn, ok := stmt.(*ast.FunctionStatement); ok {
+			mod.Functions[fn.Name.Value] = nil
+		}
+	}
+
+	// Second pass: lower each function body.  The function is already in
+	// mod.Functions (from the first pass) so isNamedFunction finds it,
+	// and lowerFunction overwrites the nil stub with the real function.
 	for _, stmt := range program.Statements {
 		if fn, ok := stmt.(*ast.FunctionStatement); ok {
 			mod.Functions[fn.Name.Value] = l.lowerFunction(fn)
@@ -126,6 +140,11 @@ func (l *Lowerer) lowerFunction(fn *ast.FunctionStatement) *Function {
 		Name:    fn.Name.Value,
 		Returns: l.fnReturns[fn.Name.Value],
 		Body:    make([]Inst, 0),
+	}
+
+	// Register early so recursive calls can find this function
+	if l.mod != nil {
+		l.mod.Functions[fn.Name.Value] = l.fn
 	}
 
 	for _, p := range fn.Parameters {
@@ -522,8 +541,79 @@ func (l *Lowerer) lowerExpression(expr ast.Expression) IRType {
 		if ti, ok := l.typeInfo[e]; ok {
 			irt = ResolveType(ti)
 		}
-		l.emit(Inst{Op: OpConstNil, Type: irt})
+
+		// Resolve return type from type info
+		returnType := IRVoid
+		if ti, ok := l.typeInfo[e]; ok {
+			if ft, ok := ti.(*types.FunctionType); ok {
+				returnType = ResolveType(ft.Return)
+			}
+		}
+
+		// Generate unique name for the closure function
+		fnName := l.newLabel("closure")
+
+		// Save current lowering state
+		oldScope := l.scope
+		oldFn := l.fn
+
+		// Create new function for the closure body
+		l.scope = newLowerScope(nil)
+		l.fn = &Function{
+			Name:    fnName,
+			Returns: returnType,
+			Body:    make([]Inst, 0),
+		}
+
+		// Add parameters as locals
+		for _, p := range e.Parameters {
+			paramIrt := l.resolveIRType(p.Type)
+			l.allocSlot(p.Name.Value, paramIrt)
+			l.fn.Params = append(l.fn.Params, Local{Name: p.Name.Value, Type: paramIrt})
+		}
+
+		// Find free variables (identifiers referencing enclosing-scope variables)
+		captures := findFreeVariables(e.Body, e.Parameters, oldScope)
+
+		// Add captured variables as locals in the closure function
+		for _, name := range captures {
+			t := lookupSlotTypeInScope(oldScope, oldFn, name)
+			l.allocSlot(name, t)
+			l.fn.Captures = append(l.fn.Captures, name)
+		}
+
+		// Lower function body
+		if e.Body != nil {
+			l.lowerBlock(e.Body)
+		}
+
+		// Ensure return instruction
+		if returnType == IRVoid || returnType == IRNil {
+			l.emit(Inst{Op: OpReturn})
+		} else {
+			l.emit(Inst{Op: OpConstNil, Type: returnType})
+			l.emit(Inst{Op: OpReturnVal, Type: returnType})
+		}
+
+		// Register the closure function in the module
+		l.mod.Functions[fnName] = l.fn
+
+		// Restore previous lowering state
+		l.scope = oldScope
+		l.fn = oldFn
+
+		// Emit capture loads — each OpLoad reads from the enclosing frame's locals
+		for _, name := range captures {
+			t := l.lookupSlotType(name)
+			l.emit(Inst{Op: OpLoad, Label: name, Type: t})
+		}
+
+		// Emit closure creation — pops capture values from stack
+		l.emit(Inst{Op: OpMakeClosure, Label: fnName, Arg: Operand{Int: int64(len(captures))}, Type: irt})
 		return irt
+
+	case *ast.PipeExpression:
+		return l.lowerPipeExpression(e)
 
 	case *ast.CastExpression:
 		return l.lowerCast(e)
@@ -644,58 +734,267 @@ func (l *Lowerer) lowerAssign(e *ast.AssignExpression) IRType {
 	return irt
 }
 
+func (l *Lowerer) isNamedFunction(name string) bool {
+	if l.mod == nil {
+		return false
+	}
+	_, ok := l.mod.Functions[name]
+	return ok
+}
+
 func (l *Lowerer) lowerCall(e *ast.CallExpression) IRType {
 	irt := IRAny
 	if ti, ok := l.typeInfo[e]; ok {
 		irt = ResolveType(ti)
 	}
 
-	for _, arg := range e.Arguments {
-		l.lowerExpression(arg)
-	}
+	_, isMemberExpr := e.Function.(*ast.MemberExpression)
 
-	argc := int64(len(e.Arguments))
-
+	// Check for builtin calls first — applies to any identifier, not just named functions
 	if ident, ok := e.Function.(*ast.Identifier); ok {
 		switch ident.Value {
 		case "print":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
 			l.emit(Inst{Op: OpPrint})
 			return IRVoid
 		case "println":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
 			l.emit(Inst{Op: OpPrintln})
 			return IRVoid
 		case "len":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
 			l.emit(Inst{Op: OpLen, Type: IRInt})
 			return IRInt
 		case "contains":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
 			l.emit(Inst{Op: OpContains, Type: IRBool})
 			return IRBool
 		case "keys":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
 			l.emit(Inst{Op: OpKeys, Type: IRArray})
 			return IRArray
 		case "assert":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
 			l.emit(Inst{Op: OpAssert})
 			return IRVoid
 		case "int":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
 			l.emit(Inst{Op: OpToInt, Type: IRInt})
 			return IRInt
 		case "float":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
 			l.emit(Inst{Op: OpToFloat, Type: IRFloat})
 			return IRFloat
 		case "string":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
 			l.emit(Inst{Op: OpToString, Type: IRString})
 			return IRString
 		case "readline":
 			l.emit(Inst{Op: OpReadLine, Type: IRString})
 			return IRString
+		case "str":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpToString, Type: IRString})
+			return IRString
+		case "type_of":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpTypeOf, Type: IRString})
+			return IRString
+		case "parse_int":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpParseInt, Type: IRInt})
+			return IRInt
+		case "parse_float":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpParseFloat, Type: IRFloat})
+			return IRFloat
+		case "push":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpArrayPush, Type: IRArray})
+			return IRArray
+		case "head":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpArrayHead, Type: IRAny})
+			return IRAny
+		case "tail":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpArrayTail, Type: IRArray})
+			return IRArray
+		case "split":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpStrSplit, Type: IRArray})
+			return IRArray
+		case "join":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpStrJoin, Type: IRString})
+			return IRString
+		case "trim":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpStrTrim, Type: IRString})
+			return IRString
+		case "substr":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpStrSubstr, Type: IRString})
+			return IRString
+		case "starts_with":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpStrStartsWith, Type: IRBool})
+			return IRBool
+		case "ends_with":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpStrEndsWith, Type: IRBool})
+			return IRBool
+		case "replace":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpStrReplace, Type: IRString})
+			return IRString
+		case "index_of":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpStrIndexOf, Type: IRInt})
+			return IRInt
+		case "to_upper":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpStrToUpper, Type: IRString})
+			return IRString
+		case "to_lower":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpStrToLower, Type: IRString})
+			return IRString
+		case "ord":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpOrd, Type: IRInt})
+			return IRInt
+		case "chr":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpChr, Type: IRChar})
+			return IRChar
+		case "char_at":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpCharAt, Type: IRChar})
+			return IRChar
+		case "values":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpMapValues, Type: IRArray})
+			return IRArray
+		case "has_key":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpContains, Type: IRBool})
+			return IRBool
+		case "set":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpMapSet, Type: IRMap})
+			return IRMap
+		case "delete":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpMapDelete, Type: IRMap})
+			return IRMap
+		case "read_file":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpReadFile, Type: IRString})
+			return IRString
+		case "write_file":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpWriteFile})
+			return IRVoid
+		case "append_file":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpAppendFile})
+			return IRVoid
+		case "file_exists":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpFileExists, Type: IRBool})
+			return IRBool
+		case "mkdir":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpMkDir})
+			return IRVoid
+		case "remove_file":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpRemoveFile})
+			return IRVoid
+		case "rename_file":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpRenameFile})
+			return IRVoid
+		case "read_dir":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpReadDir, Type: IRArray})
+			return IRArray
+		case "cwd":
+			l.emit(Inst{Op: OpCwd, Type: IRString})
+			return IRString
+		case "args":
+			l.emit(Inst{Op: OpArgs, Type: IRArray})
+			return IRArray
+		case "exec":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpExec, Type: IRInt, Arg: Operand{Int: int64(len(e.Arguments))}})
+			return IRInt
+		case "exec_output":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpExecOutput, Type: IRString, Arg: Operand{Int: int64(len(e.Arguments))}})
+			return IRString
+		case "exit":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpExit})
+			return IRVoid
+		case "panic":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpPanic})
+			return IRVoid
+		case "getenv":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpGetEnv, Type: IRString})
+			return IRString
+		case "setenv":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpSetEnv})
+			return IRVoid
+		case "tcp_listen":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpTCPListen, Type: IRInt})
+			return IRInt
+		case "tcp_accept":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpTCPAccept, Type: IRInt})
+			return IRInt
+		case "tcp_read":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpTCPRead, Type: IRString})
+			return IRString
+		case "tcp_write":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpTCPWrite, Type: IRInt})
+			return IRInt
+		case "tcp_close":
+			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			l.emit(Inst{Op: OpTCPClose, Type: IRBool})
+			return IRBool
 		}
 	}
 
-	if member, ok := e.Function.(*ast.MemberExpression); ok {
-		return l.lowerMethodCall(member, e.Arguments)
+	// Named function call: push args, emit OpCall
+	if ident, ok := e.Function.(*ast.Identifier); ok && l.isNamedFunction(ident.Value) {
+		for _, arg := range e.Arguments {
+			l.lowerExpression(arg)
+		}
+		argc := int64(len(e.Arguments))
+		l.emit(Inst{Op: OpCall, Label: ident.Value, Arg: Operand{Int: argc}, Type: irt})
+		return irt
 	}
 
-	l.emit(Inst{Op: OpCall, Label: l.extractFuncName(e.Function), Arg: Operand{Int: argc}, Type: irt})
+	// Method call
+	if isMemberExpr {
+		return l.lowerMethodCall(e.Function.(*ast.MemberExpression), e.Arguments)
+	}
+
+	// Function value call: push fn on stack first, then args
+	l.lowerExpression(e.Function)
+	for _, arg := range e.Arguments {
+		l.lowerExpression(arg)
+	}
+	argc := int64(len(e.Arguments))
+	l.emit(Inst{Op: OpCallFunc, Arg: Operand{Int: argc}, Type: irt})
 	return irt
 }
 
@@ -866,10 +1165,65 @@ func (l *Lowerer) lowerMember(e *ast.MemberExpression) IRType {
 	if ti, ok := l.typeInfo[e]; ok {
 		irt = ResolveType(ti)
 	}
-
 	l.lowerExpression(e.Object)
 	l.emit(Inst{Op: OpGetField, Label: e.Member.Value, Type: irt})
 	return irt
+}
+
+func (l *Lowerer) lowerPipeExpression(e *ast.PipeExpression) IRType {
+	irt := IRAny
+	if ti, ok := l.typeInfo[e]; ok {
+		irt = ResolveType(ti)
+	}
+
+	// Stack convention: OpCallFunc expects [fn, arg0, arg1, ...] —
+	// fn on bottom, args on top. Named functions (OpCall) expect
+	// [arg0, arg1, ...] — OpCall label replaces fn.
+
+	switch right := e.Right.(type) {
+	case *ast.CallExpression:
+		if ident, ok := right.Function.(*ast.Identifier); ok && l.isNamedFunction(ident.Value) {
+			l.lowerExpression(e.Left)
+			for _, arg := range right.Arguments {
+				l.lowerExpression(arg)
+			}
+			argc := int64(len(right.Arguments) + 1)
+			l.emit(Inst{Op: OpCall, Label: ident.Value, Arg: Operand{Int: argc}, Type: irt})
+			return irt
+		}
+		if _, ok := right.Function.(*ast.MemberExpression); ok {
+			return l.lowerMethodCall(right.Function.(*ast.MemberExpression),
+				append([]ast.Expression{e.Left}, right.Arguments...))
+		}
+		l.lowerExpression(right.Function)
+		l.lowerExpression(e.Left)
+		for _, arg := range right.Arguments {
+			l.lowerExpression(arg)
+		}
+		argc := int64(len(right.Arguments) + 1)
+		l.emit(Inst{Op: OpCallFunc, Arg: Operand{Int: argc}, Type: irt})
+		return irt
+
+	case *ast.Identifier:
+		if l.isNamedFunction(right.Value) {
+			l.lowerExpression(e.Left)
+			l.emit(Inst{Op: OpCall, Label: right.Value, Arg: Operand{Int: 1}, Type: irt})
+			return irt
+		}
+		l.lowerExpression(right)
+		l.lowerExpression(e.Left)
+		l.emit(Inst{Op: OpCallFunc, Arg: Operand{Int: 1}, Type: irt})
+		return irt
+
+	case *ast.MemberExpression:
+		return l.lowerMethodCall(right, []ast.Expression{e.Left})
+
+	default:
+		l.lowerExpression(right)
+		l.lowerExpression(e.Left)
+		l.emit(Inst{Op: OpCallFunc, Arg: Operand{Int: 1}, Type: irt})
+		return irt
+	}
 }
 
 func (l *Lowerer) lowerMatch(e *ast.MatchExpression) IRType {
@@ -1013,6 +1367,213 @@ func (l *Lowerer) lookupSlotType(name string) IRType {
 		}
 	}
 	return IRAny
+}
+
+// lookupSlotTypeInScope looks up the IRType of a variable in an arbitrary
+// scope / function pair (used when the current l.scope/l.fn differ from the
+// enclosing context, e.g. during closure capture analysis).
+func lookupSlotTypeInScope(scope *lowerScope, fn *Function, name string) IRType {
+	for s := scope; s != nil; s = s.parent {
+		if idx, ok := s.slots[name]; ok {
+			if idx >= 0 && idx < len(fn.Locals) {
+				return fn.Locals[idx].Type
+			}
+		}
+	}
+	return IRAny
+}
+
+// findFreeVariables collects all identifier references in body that are not
+// closure parameters and are defined in an enclosing scope.  These variables
+// must be captured (bundled) when the closure is created at runtime.
+func findFreeVariables(body *ast.BlockStatement, params []*ast.Parameter, enclosingScope *lowerScope) []string {
+	paramSet := make(map[string]bool)
+	for _, p := range params {
+		paramSet[p.Name.Value] = true
+	}
+
+	var refs []string
+	collectIdentifiersInBlock(body, &refs)
+
+	seen := make(map[string]bool)
+	var captures []string
+	for _, name := range refs {
+		if paramSet[name] || seen[name] {
+			continue
+		}
+		// Only capture variables that exist in an enclosing scope
+		if variableExistsInScope(name, enclosingScope) {
+			captures = append(captures, name)
+			seen[name] = true
+		}
+	}
+	return captures
+}
+
+func variableExistsInScope(name string, scope *lowerScope) bool {
+	for s := scope; s != nil; s = s.parent {
+		if _, ok := s.slots[name]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// collectIdentifiersInBlock walks a BlockStatement and collects all
+// Identifier Values.  It does NOT descend into nested FunctionLiteral bodies
+// (those have their own scope).
+func collectIdentifiersInBlock(block *ast.BlockStatement, out *[]string) {
+	if block == nil {
+		return
+	}
+	for _, stmt := range block.Statements {
+		collectIdentifiersInStmt(stmt, out)
+	}
+}
+
+func collectIdentifiersInStmt(stmt ast.Statement, out *[]string) {
+	switch s := stmt.(type) {
+	case *ast.ExpressionStatement:
+		collectIdentifiersInExpr(s.Expression, out)
+	case *ast.ReturnStatement:
+		if s.ReturnValue != nil {
+			collectIdentifiersInExpr(s.ReturnValue, out)
+		}
+	case *ast.LetStatement:
+		if s.Value != nil {
+			collectIdentifiersInExpr(s.Value, out)
+		}
+	case *ast.ConstStatement:
+		if s.Value != nil {
+			collectIdentifiersInExpr(s.Value, out)
+		}
+	case *ast.BlockStatement:
+		collectIdentifiersInBlock(s, out)
+	case *ast.ForStatement:
+		if s.Init != nil {
+			collectIdentifiersInStmt(s.Init, out)
+		}
+		if s.Condition != nil {
+			collectIdentifiersInExpr(s.Condition, out)
+		}
+		if s.Post != nil {
+			collectIdentifiersInStmt(s.Post, out)
+		}
+		if s.Body != nil {
+			collectIdentifiersInBlock(s.Body, out)
+		}
+	case *ast.ForInStatement:
+		if s.Iterable != nil {
+			collectIdentifiersInExpr(s.Iterable, out)
+		}
+		if s.Body != nil {
+			collectIdentifiersInBlock(s.Body, out)
+		}
+	case *ast.WhileStatement:
+		if s.Condition != nil {
+			collectIdentifiersInExpr(s.Condition, out)
+		}
+		if s.Body != nil {
+			collectIdentifiersInBlock(s.Body, out)
+		}
+	case *ast.LoopStatement:
+		if s.Body != nil {
+			collectIdentifiersInBlock(s.Body, out)
+		}
+	}
+}
+
+func collectIdentifiersInExpr(expr ast.Expression, out *[]string) {
+	switch e := expr.(type) {
+	case *ast.Identifier:
+		*out = append(*out, e.Value)
+	case *ast.PrefixExpression:
+		collectIdentifiersInExpr(e.Right, out)
+	case *ast.InfixExpression:
+		collectIdentifiersInExpr(e.Left, out)
+		collectIdentifiersInExpr(e.Right, out)
+	case *ast.PipeExpression:
+		collectIdentifiersInExpr(e.Left, out)
+		collectIdentifiersInExpr(e.Right, out)
+	case *ast.CallExpression:
+		collectIdentifiersInExpr(e.Function, out)
+		for _, arg := range e.Arguments {
+			collectIdentifiersInExpr(arg, out)
+		}
+	case *ast.IndexExpression:
+		collectIdentifiersInExpr(e.Left, out)
+		collectIdentifiersInExpr(e.Index, out)
+	case *ast.MemberExpression:
+		collectIdentifiersInExpr(e.Object, out)
+	case *ast.AssignExpression:
+		collectIdentifiersInExpr(e.Left, out)
+		collectIdentifiersInExpr(e.Right, out)
+	case *ast.IfExpression:
+		collectIdentifiersInExpr(e.Condition, out)
+		if e.Consequence != nil {
+			collectIdentifiersInBlock(e.Consequence, out)
+		}
+		if e.Alternative != nil {
+			collectIdentifiersInBlock(e.Alternative, out)
+		}
+	case *ast.MatchExpression:
+		collectIdentifiersInExpr(e.Value, out)
+		for _, arm := range e.Arms {
+			if arm.Pattern != nil {
+				collectIdentifiersInExpr(arm.Pattern, out)
+			}
+			if arm.Body != nil {
+				collectIdentifiersInExpr(arm.Body, out)
+			}
+		}
+	case *ast.ArrayLiteral:
+		for _, el := range e.Elements {
+			collectIdentifiersInExpr(el, out)
+		}
+	case *ast.MapLiteral:
+		for k, v := range e.Pairs {
+			collectIdentifiersInExpr(k, out)
+			collectIdentifiersInExpr(v, out)
+		}
+	case *ast.FunctionLiteral:
+		// Do NOT descend into nested FunctionLiteral bodies — those have
+		// their own scope and will be handled when they are lowered.
+	case *ast.CastExpression:
+		collectIdentifiersInExpr(e.Value, out)
+	case *ast.BorrowExpression:
+		collectIdentifiersInExpr(e.Value, out)
+	case *ast.DerefExpression:
+		collectIdentifiersInExpr(e.Value, out)
+	case *ast.TryExpression:
+		collectIdentifiersInExpr(e.Value, out)
+	case *ast.OkExpression:
+		collectIdentifiersInExpr(e.Value, out)
+	case *ast.ErrExpression:
+		collectIdentifiersInExpr(e.Value, out)
+	case *ast.SpawnExpression:
+		if e.Body != nil {
+			collectIdentifiersInBlock(e.Body, out)
+		}
+	case *ast.AwaitExpression:
+		collectIdentifiersInExpr(e.Value, out)
+	case *ast.NewExpression:
+		for _, arg := range e.Arguments {
+			collectIdentifiersInExpr(arg, out)
+		}
+	case *ast.BlockExpression:
+		collectIdentifiersInBlock(e.Block, out)
+	case *ast.InterpolatedString:
+		for _, part := range e.Parts {
+			collectIdentifiersInExpr(part, out)
+		}
+	case *ast.IsExpression:
+		collectIdentifiersInExpr(e.Value, out)
+	case *ast.SendExpression:
+		collectIdentifiersInExpr(e.Channel, out)
+		collectIdentifiersInExpr(e.Value, out)
+	case *ast.RecvExpression:
+		collectIdentifiersInExpr(e.Channel, out)
+	}
 }
 
 func (l *Lowerer) resolveIRType(typeExpr ast.TypeExpr) IRType {

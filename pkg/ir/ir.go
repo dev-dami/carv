@@ -97,6 +97,70 @@ const (
 	OpInterp
 	OpCastInt
 	OpCastFloat
+
+	// String builtins
+	OpStrSplit
+	OpStrJoin
+	OpStrTrim
+	OpStrSubstr
+	OpStrStartsWith
+	OpStrEndsWith
+	OpStrReplace
+	OpStrIndexOf
+	OpStrToUpper
+	OpStrToLower
+	OpOrd
+	OpChr
+	OpCharAt
+
+	// Array builtins
+	OpArrayPush
+	OpArrayHead
+	OpArrayTail
+
+	// Map builtins
+	OpMapValues
+	OpMapDelete
+
+	// Type / conversion
+	OpTypeOf
+	OpParseInt
+	OpParseFloat
+
+	// File I/O builtins
+	OpReadFile
+	OpWriteFile
+	OpAppendFile
+	OpFileExists
+	OpMkDir
+	OpRemoveFile
+	OpRenameFile
+	OpReadDir
+	OpCwd
+
+	// Process builtins
+	OpArgs
+	OpExec
+	OpExecOutput
+
+	// Environment builtins
+	OpGetEnv
+	OpSetEnv
+
+	// TCP builtins
+	OpTCPListen
+	OpTCPAccept
+	OpTCPRead
+	OpTCPWrite
+	OpTCPClose
+
+	// Misc builtins
+	OpExit
+	OpPanic
+
+	// Closure support
+	OpMakeClosure
+	OpCallFunc
 )
 
 func (o Op) String() string {
@@ -247,6 +311,94 @@ func (o Op) String() string {
 		return "cast_int"
 	case OpCastFloat:
 		return "cast_float"
+	case OpStrSplit:
+		return "str_split"
+	case OpStrJoin:
+		return "str_join"
+	case OpStrTrim:
+		return "str_trim"
+	case OpStrSubstr:
+		return "str_substr"
+	case OpStrStartsWith:
+		return "str_starts_with"
+	case OpStrEndsWith:
+		return "str_ends_with"
+	case OpStrReplace:
+		return "str_replace"
+	case OpStrIndexOf:
+		return "str_index_of"
+	case OpStrToUpper:
+		return "str_to_upper"
+	case OpStrToLower:
+		return "str_to_lower"
+	case OpOrd:
+		return "ord"
+	case OpChr:
+		return "chr"
+	case OpCharAt:
+		return "char_at"
+	case OpArrayPush:
+		return "array_push"
+	case OpArrayHead:
+		return "array_head"
+	case OpArrayTail:
+		return "array_tail"
+	case OpMapValues:
+		return "map_values"
+	case OpMapDelete:
+		return "map_delete"
+	case OpTypeOf:
+		return "type_of"
+	case OpParseInt:
+		return "parse_int"
+	case OpParseFloat:
+		return "parse_float"
+	case OpReadFile:
+		return "read_file"
+	case OpWriteFile:
+		return "write_file"
+	case OpAppendFile:
+		return "append_file"
+	case OpFileExists:
+		return "file_exists"
+	case OpMkDir:
+		return "mkdir"
+	case OpRemoveFile:
+		return "remove_file"
+	case OpRenameFile:
+		return "rename_file"
+	case OpReadDir:
+		return "read_dir"
+	case OpCwd:
+		return "cwd"
+	case OpArgs:
+		return "args"
+	case OpExec:
+		return "exec"
+	case OpExecOutput:
+		return "exec_output"
+	case OpGetEnv:
+		return "getenv"
+	case OpSetEnv:
+		return "setenv"
+	case OpTCPListen:
+		return "tcp_listen"
+	case OpTCPAccept:
+		return "tcp_accept"
+	case OpTCPRead:
+		return "tcp_read"
+	case OpTCPWrite:
+		return "tcp_write"
+	case OpTCPClose:
+		return "tcp_close"
+	case OpExit:
+		return "exit"
+	case OpPanic:
+		return "panic"
+	case OpMakeClosure:
+		return "make_closure"
+	case OpCallFunc:
+		return "call_func"
 	}
 	return "?"
 }
@@ -328,6 +480,7 @@ type Function struct {
 	Locals    []Local
 	Body      []Inst
 	Variadic  bool
+	Captures  []string // names of variables captured from enclosing scopes
 }
 
 type Module struct {
@@ -420,6 +573,10 @@ func FormatInst(i int, inst *Inst) string {
 		return inst.Op.String() + " " + inst.Label
 	case OpArrayLit, OpMapLit, OpInterp:
 		return inst.Op.String() + " " + strconv.FormatInt(inst.Arg.Int, 10)
+	case OpMakeClosure:
+		return "make_closure " + inst.Label
+	case OpCallFunc:
+		return "call_func(" + strconv.FormatInt(inst.Arg.Int, 10) + ")"
 	default:
 		return inst.Op.String()
 	}
