@@ -1,0 +1,38 @@
+// Lesson 13: Implementing Interfaces
+// Use 'impl Interface for Type' to provide interface logic.
+
+interface Speaker {
+    fn speak(&self) -> string;
+}
+
+class Dog {
+    breed: string
+}
+
+impl Speaker for Dog {
+    fn speak(&self) -> string {
+        return "Woof!";
+    }
+}
+
+class Robot {
+    model: string
+}
+
+impl Speaker for Robot {
+    fn speak(&self) -> string {
+        return "Beep boop.";
+    }
+}
+
+// Using interface references
+let d = new Dog;
+let r = new Robot;
+
+let s1: &Speaker = &d as &Speaker;
+let s2: &Speaker = &r as &Speaker;
+
+println(f"Dog says: {s1.speak()}");
+println(f"Robot says: {s2.speak()}");
+
+println("---");

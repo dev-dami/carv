@@ -1,0 +1,21 @@
+// Lesson 6: Strings
+// Carv strings support interpolation and basic operations.
+
+let name = "Developer";
+
+// String interpolation with f-strings
+let greeting = f"Hello, {name}!";
+println(greeting);
+
+// Escaping braces in f-strings
+println(f"Use {{brackets}} for templates");
+
+// String built-ins
+let text = "Carv";
+println(f"Length: {len(text)}");
+
+// Strings can be concatenated with +
+let full = "Carv" + " Language";
+println(full);
+
+println("---");

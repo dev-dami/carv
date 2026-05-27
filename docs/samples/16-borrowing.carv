@@ -1,0 +1,20 @@
+// Lesson 16: Borrowing
+// Carv uses references to avoid moving values.
+
+fn print_msg(s: &string) {
+    println(f"Message: {s}");
+}
+
+let original = "Hello";
+print_msg(&original); // Immutable borrow — original still valid
+println(f"Original is still usable: {original}");
+
+// Multiple immutable borrows from the same value
+print_msg(&original);
+print_msg(&original);
+
+// Borrow rules summary:
+// 1. You can have many immutable borrows OR one mutable borrow.
+// 2. You cannot move a value while it is borrowed.
+
+println("---");

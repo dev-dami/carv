@@ -1,0 +1,19 @@
+// Lesson 8: Arrays
+// Arrays are indexable collections of elements.
+
+let scores = [10, 20, 30, 40, 50];
+println(f"Scores: {scores}");
+println(f"Length: {len(scores)}");
+
+// Accessing elements by index
+let first = scores[0];
+let third = scores[2];
+println(f"scores[0] = {first}");
+println(f"scores[2] = {third}");
+
+// For-in over arrays
+for n in scores {
+    println(f"Element: {n}");
+}
+
+println("---");

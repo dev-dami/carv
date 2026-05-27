@@ -1,0 +1,17 @@
+// Lesson 1: Hello, Carv!
+// Carv is a Rust-inspired language that compiles to C.
+
+// The simplest program uses the println built-in.
+// It prints arguments to stdout with a trailing newline.
+println("Hello, Carv!");
+
+// You can print multiple values at once.
+// They will be separated by spaces.
+println("Counting:", 1, 2, 3);
+
+// Variables are declared with 'let'.
+// By default, they are immutable (cannot be changed).
+let name = "Carv";
+println(f"Welcome to {name}!");
+
+println("---");

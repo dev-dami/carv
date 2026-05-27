@@ -1,0 +1,30 @@
+// Lesson 11: Methods
+// Methods are functions declared inside a class.
+
+class Counter {
+    value: int = 0
+
+    // Immutable method: uses &self
+    fn get_value(&self) -> int {
+        return self.value;
+    }
+
+    // Mutable method: uses &mut self
+    fn increment(&mut self) {
+        self.value = self.value + 1;
+    }
+
+    // Methods can take additional arguments
+    fn reset(&mut self, start: int) {
+        self.value = start;
+    }
+}
+
+mut c = new Counter;
+c.increment();
+println(f"Value after increment: {c.get_value()}");
+
+c.reset(10);
+println(f"Value after reset: {c.get_value()}");
+
+println("---");

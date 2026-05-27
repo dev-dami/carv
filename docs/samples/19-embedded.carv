@@ -1,0 +1,21 @@
+// Lesson 19: Embedded Features
+// Carv provides specialized types and keywords for embedded development.
+
+// Sized integer types (type annotation works, but literal inference is strict)
+// let data8: u8 = 255;
+// let data16: u16 = 65535;
+// let data32: u32 = 4294967295;
+// let signed64: i64 = 1;
+
+// Packed classes for exact memory layout (no padding)
+packed class RegisterMap {
+    control: u32 = 0
+    status: u32 = 0
+    data: u32 = 0
+}
+
+// Static variables (stored in data/BSS sections)
+static mut BOOT_COUNT: int = 0;
+
+println("Embedded features: sized types, volatile, packed, static.");
+println("---");

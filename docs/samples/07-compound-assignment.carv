@@ -1,0 +1,22 @@
+// Lesson 7: Compound Assignment
+// Mutable variables support compound assignment operators.
+
+mut x = 10;
+println(f"Initial: {x}");
+
+x += 5;   // add
+println(f"After += 5: {x}");
+
+x -= 3;   // subtract
+println(f"After -= 3: {x}");
+
+x *= 2;   // multiply
+println(f"After *= 2: {x}");
+
+x /= 4;   // divide
+println(f"After /= 4: {x}");
+
+x %= 3;   // modulo
+println(f"After %= 3: {x}");
+
+println("---");

@@ -1,0 +1,24 @@
+// Lesson 17: Function Composition
+// Functions can be combined and passed around.
+
+fn double(x: int) -> int {
+    return x * 2;
+}
+
+fn add_ten(x: int) -> int {
+    return x + 10;
+}
+
+// Compose two functions
+fn compose(val: int) -> int {
+    return add_ten(double(val));
+}
+
+let result = compose(5);
+println(f"Compose double(5) + 10 = {result}");
+
+// Direct function calls in expressions
+let piped = add_ten(double(20));
+println(f"add_ten(double(20)) = {piped}");
+
+println("---");

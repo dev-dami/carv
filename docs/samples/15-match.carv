@@ -1,0 +1,17 @@
+// Lesson 15: Match Expression
+// Match provides powerful pattern matching with Ok/Err.
+
+let s = Ok(42);
+let e = Err("Something went wrong");
+
+match s {
+    Ok(val) => println(f"Success: {val}"),
+    Err(msg) => println(f"Error: {msg}"),
+};
+
+match e {
+    Ok(val) => println(f"Success: {val}"),
+    Err(msg) => println(f"Error: {msg}"),
+};
+
+println("---");

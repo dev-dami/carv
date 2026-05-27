@@ -1,0 +1,25 @@
+// Lesson 14: Result Types
+// Carv uses Ok/Err for error handling.
+
+// A simple function that returns a result
+fn safe_divide(a: float, b: float) {
+    if b == 0.0 {
+        return Err("Division by zero");
+    }
+    return Ok(a / b);
+}
+
+// Store results and handle them with match
+let res1 = safe_divide(10.0, 2.0);
+match res1 {
+    Ok(val) => println(f"10 / 2 = {val}"),
+    Err(msg) => println(f"Error: {msg}"),
+};
+
+let res2 = safe_divide(5.0, 0.0);
+match res2 {
+    Ok(val) => println(f"5 / 0 = {val}"),
+    Err(msg) => println(f"Error: {msg}"),
+};
+
+println("---");

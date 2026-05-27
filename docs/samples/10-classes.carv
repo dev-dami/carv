@@ -1,0 +1,25 @@
+// Lesson 10: Classes
+// Classes define structured data with fields.
+
+class Point {
+    x: int = 0
+    y: int = 0
+}
+
+class Rectangle {
+    width: float = 0.0
+    height: float = 0.0
+}
+
+// Create instances with 'new'
+let p = new Point;
+p.x = 10;
+p.y = 20;
+println(f"Point: ({p.x}, {p.y})");
+
+let r = new Rectangle;
+r.width = 5.5;
+r.height = 3.0;
+println(f"Rectangle: {r.width} x {r.height}");
+
+println("---");

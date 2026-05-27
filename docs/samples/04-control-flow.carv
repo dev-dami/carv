@@ -1,0 +1,22 @@
+// Lesson 4: Control Flow
+// If/else conditions and loops.
+
+// If/else
+let score = 85;
+if score >= 90 {
+    println("Grade: A");
+} else if score >= 80 {
+    println("Grade: B");
+} else {
+    println("Grade: C");
+}
+
+// While loop
+println("While loop:");
+mut x = 0;
+while x < 3 {
+    println(f"x = {x}");
+    x = x + 1;
+}
+
+println("---");

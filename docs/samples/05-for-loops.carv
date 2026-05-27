@@ -1,0 +1,23 @@
+// Lesson 5: For Loops
+// Carv provides C-style for loops and 'for-in' iterators.
+
+// C-style for loop: (init; condition; post-iteration)
+println("C-style loop:");
+for (let i = 0; i < 3; i = i + 1) {
+    println(f"i = {i}");
+}
+
+// For-in over an array
+println("Array iteration:");
+let nums = [10, 20, 30];
+for n in nums {
+    println(f"Num: {n}");
+}
+
+// For-in over a string iterates over characters
+println("String iteration:");
+for ch in "Carv" {
+    println(f"Char: {ch}");
+}
+
+println("---");

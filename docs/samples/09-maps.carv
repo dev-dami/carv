@@ -1,0 +1,14 @@
+// Lesson 9: Maps
+// Maps store key-value pairs for quick lookups.
+
+let capitals = {"france": "paris", "japan": "tokyo", "ghana": "accra"};
+println(f"Map count: {len(capitals)}");
+
+// Access by key
+let france_cap = capitals["france"];
+println(f"Capital of France: {france_cap}");
+
+let japan_cap = capitals["japan"];
+println(f"Capital of Japan: {japan_cap}");
+
+println("---");

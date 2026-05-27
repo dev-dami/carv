@@ -1,0 +1,24 @@
+// Lesson 2: Variables and Mutability
+// Carv has immutable (let), mutable (mut), and constant (const) variables.
+
+// Immutable variable — cannot be reassigned
+let name = "Carv";
+
+// Mutable variable — can be changed
+mut count = 0;
+count = count + 1;
+
+// Constant — compile-time known value
+const PI = 3.14159;
+
+// Explicit type annotation
+let greeting: string = "Hello";
+let year: int = 2025;
+let pi: float = 3.14;
+let flag: bool = true;
+
+println(f"Name: {name}");
+println(f"Count: {count}");
+println(f"PI: {PI}");
+
+println("---");

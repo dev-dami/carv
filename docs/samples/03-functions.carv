@@ -1,0 +1,28 @@
+// Lesson 3: Functions
+// Functions are defined with 'fn'.
+
+// A simple function with parameters and no return type (void)
+fn greet(name: string) {
+    println(f"Hello, {name}!");
+}
+
+// A function with a return type using '->'
+fn add(a: int, b: int) -> int {
+    return a + b;
+}
+
+// Function with multiple return paths
+fn absolute(n: int) -> int {
+    if n < 0 {
+        return -n;
+    }
+    return n;
+}
+
+// Calling functions
+greet("Learner");
+let sum = add(10, 20);
+println(f"10 + 20 = {sum}");
+println(f"Absolute of -5 is {absolute(-5)}");
+
+println("---");

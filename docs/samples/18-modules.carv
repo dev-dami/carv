@@ -1,0 +1,18 @@
+// Lesson 18: Modules
+// Carv uses 'require' to load other files and modules.
+
+// Import specific exports from a module
+// require { add, subtract } from "./math";
+
+// Import entire module with an alias
+// require "./utils" as u;
+
+// Import all exports
+// require * from "./core";
+
+// For this sample, we just show the syntax:
+println("Syntax: require { name } from \"path\";");
+println("Syntax: require \"path\" as alias;");
+println("Syntax: require * from \"path\";");
+
+println("---");

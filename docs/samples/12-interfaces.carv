@@ -1,0 +1,20 @@
+// Lesson 12: Interfaces
+// Interfaces define shared behavior through method signatures.
+
+interface Speaker {
+    fn speak(&self) -> string;
+}
+
+interface Displayable {
+    fn to_string(&self) -> string;
+    fn display(&self);
+}
+
+// Classes implement interfaces using 'impl Interface for Type'
+// See the next lesson for implementation examples.
+
+println("Interfaces define method contracts.");
+println("Use 'impl Interface for Type' to implement them.");
+println("See next lesson.");
+
+println("---");
