@@ -67,6 +67,8 @@ type VM struct {
 	in        io.Reader
 	maxStack  int
 	trace     bool
+	tcpHandles map[int]interface{}
+	nextTCPHandle int
 }
 
 func New(mod *ir.Module) *VM {
@@ -80,6 +82,8 @@ func New(mod *ir.Module) *VM {
 		err:      os.Stderr,
 		in:       os.Stdin,
 		maxStack: 65536,
+		tcpHandles: make(map[int]interface{}),
+		nextTCPHandle: 1,
 	}
 	return vm
 }
@@ -944,33 +948,102 @@ func (vm *VM) exec(inst *ir.Inst) (Value, error) {
 		ln, err := net.Listen("tcp", host.Str+":"+strconv.Itoa(port))
 		if err != nil {
 			vm.push(IntValue(-1))
-		} else {
-			vm.push(IntValue(int64(ln.Addr().(*net.TCPAddr).Port)))
+			break
 		}
+		listener, ok := ln.(*net.TCPListener)
+		if !ok {
+			_ = ln.Close()
+			vm.push(IntValue(-1))
+			break
+		}
+		handle := vm.nextTCPHandle
+		vm.nextTCPHandle++
+		vm.tcpHandles[handle] = listener
+		vm.push(IntValue(int64(handle)))
 
 	case ir.OpTCPAccept:
 		handle := int(toInt(vm.pop()))
-		_ = handle
-		vm.push(IntValue(0))
+		conn, ok := vm.tcpHandles[handle]
+		if !ok {
+			vm.push(IntValue(-1))
+			break
+		}
+		listener, ok := conn.(*net.TCPListener)
+		if !ok {
+			vm.push(IntValue(-1))
+			break
+		}
+		client, err := listener.Accept()
+		if err != nil {
+			vm.push(IntValue(-1))
+			break
+		}
+		newHandle := vm.nextTCPHandle
+		vm.nextTCPHandle++
+		vm.tcpHandles[newHandle] = client
+		vm.push(IntValue(int64(newHandle)))
 
 	case ir.OpTCPRead:
 		maxBytes := int(toInt(vm.pop()))
 		handle := int(toInt(vm.pop()))
-		_ = handle
-		_ = maxBytes
-		vm.push(StrValue(""))
+		conn, ok := vm.tcpHandles[handle]
+		if !ok {
+			vm.push(StrValue(""))
+			break
+		}
+		stream, ok := conn.(net.Conn)
+		if !ok {
+			vm.push(StrValue(""))
+			break
+		}
+		buf := make([]byte, maxBytes)
+		n, err := stream.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				vm.push(StrValue(""))
+				break
+			}
+			vm.push(StrValue(""))
+			break
+		}
+		vm.push(StrValue(string(buf[:n])))
 
 	case ir.OpTCPWrite:
 		data := vm.pop()
 		handle := int(toInt(vm.pop()))
-		_ = handle
-		_ = data
-		vm.push(IntValue(0))
+		conn, ok := vm.tcpHandles[handle]
+		if !ok {
+			vm.push(IntValue(-1))
+			break
+		}
+		stream, ok := conn.(net.Conn)
+		if !ok {
+			vm.push(IntValue(-1))
+			break
+		}
+		bytes := []byte(data.Str)
+		n, err := stream.Write(bytes)
+		if err != nil {
+			vm.push(IntValue(-1))
+			break
+		}
+		vm.push(IntValue(int64(n)))
 
 	case ir.OpTCPClose:
 		handle := int(toInt(vm.pop()))
-		_ = handle
-		vm.push(BoolValue(true))
+		conn, ok := vm.tcpHandles[handle]
+		if !ok {
+			vm.push(BoolValue(false))
+			break
+		}
+		delete(vm.tcpHandles, handle)
+		closer, ok := conn.(io.Closer)
+		if !ok {
+			vm.push(BoolValue(false))
+			break
+		}
+		err := closer.Close()
+		vm.push(BoolValue(err == nil))
 
 	// --- Misc builtins ---
 	case ir.OpExit:

@@ -61,9 +61,11 @@ func (l *Lowerer) Lower(program *ast.Program) *Module {
 	// First pass: register all named functions as empty stubs so that any
 	// function body can reference any other function regardless of definition
 	// order (handles cross-recursion: fn a() calls fn b() and vice versa).
+	var topLevelFns []string
 	for _, stmt := range program.Statements {
 		if fn, ok := stmt.(*ast.FunctionStatement); ok {
 			mod.Functions[fn.Name.Value] = nil
+			topLevelFns = append(topLevelFns, fn.Name.Value)
 		}
 	}
 
@@ -129,6 +131,8 @@ func (l *Lowerer) Lower(program *ast.Program) *Module {
 
 	if _, ok := mod.Functions["main"]; ok {
 		mod.Entry = "main"
+	} else if len(topLevel) == 0 && len(topLevelFns) == 1 {
+		mod.Entry = topLevelFns[0]
 	}
 
 	return mod
@@ -985,7 +989,7 @@ func (l *Lowerer) lowerCall(e *ast.CallExpression) IRType {
 
 	// Method call
 	if isMemberExpr {
-		return l.lowerMethodCall(e.Function.(*ast.MemberExpression), e.Arguments)
+		return l.lowerMethodCall(e.Function.(*ast.MemberExpression), e.Arguments, true)
 	}
 
 	// Function value call: push fn on stack first, then args
@@ -998,14 +1002,20 @@ func (l *Lowerer) lowerCall(e *ast.CallExpression) IRType {
 	return irt
 }
 
-func (l *Lowerer) lowerMethodCall(member *ast.MemberExpression, args []ast.Expression) IRType {
+func (l *Lowerer) lowerMethodCall(member *ast.MemberExpression, args []ast.Expression, receiverFirst bool) IRType {
 	irt := IRAny
 	methodName := member.Member.Value
 
-	l.lowerExpression(member.Object)
+	if receiverFirst {
+		l.lowerExpression(member.Object)
+	}
 
 	for _, arg := range args {
 		l.lowerExpression(arg)
+	}
+
+	if !receiverFirst {
+		l.lowerExpression(member.Object)
 	}
 
 	argc := int64(len(args) + 1)
@@ -1193,7 +1203,7 @@ func (l *Lowerer) lowerPipeExpression(e *ast.PipeExpression) IRType {
 		}
 		if _, ok := right.Function.(*ast.MemberExpression); ok {
 			return l.lowerMethodCall(right.Function.(*ast.MemberExpression),
-				append([]ast.Expression{e.Left}, right.Arguments...))
+				append([]ast.Expression{e.Left}, right.Arguments...), false)
 		}
 		l.lowerExpression(right.Function)
 		l.lowerExpression(e.Left)
@@ -1216,7 +1226,7 @@ func (l *Lowerer) lowerPipeExpression(e *ast.PipeExpression) IRType {
 		return irt
 
 	case *ast.MemberExpression:
-		return l.lowerMethodCall(right, []ast.Expression{e.Left})
+		return l.lowerMethodCall(right, []ast.Expression{e.Left}, false)
 
 	default:
 		l.lowerExpression(right)

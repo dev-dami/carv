@@ -727,7 +727,16 @@ func (c *Checker) checkCallExpression(e *ast.CallExpression) Type {
 
 	if !isVariadic && len(e.Arguments) != len(ft.Params) {
 		line, col := e.Pos()
-		c.error(line, col, "function expects %d arguments, got %d", len(ft.Params), len(e.Arguments))
+		callName := "function"
+		switch fn := e.Function.(type) {
+		case *ast.Identifier:
+			callName = fmt.Sprintf("function %s", fn.Value)
+		case *ast.MemberExpression:
+			callName = fmt.Sprintf("method %s", fn.Member.Value)
+		default:
+			callName = "callable"
+		}
+		c.error(line, col, "%s expects %d arguments, got %d", callName, len(ft.Params), len(e.Arguments))
 		return ft.Return
 	}
 
