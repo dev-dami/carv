@@ -2150,8 +2150,20 @@ func (g *CGenerator) generateUnsafeStatement(s *ast.UnsafeStatement) {
 // asm("template") -> ({ __asm__ volatile("template"); })
 func (g *CGenerator) generateAsmExpression(e *ast.AsmExpression) string {
 	escaped := g.escapeString(e.Template.Value)
-	// Wrap the inline asm statement in a GCC statement-expression so it can appear in expression contexts.
 	return fmt.Sprintf("({ __asm__ volatile(\"%s\"); })", escaped)
+}
+
+func (g *CGenerator) generateSpawnExpression(e *ast.SpawnExpression) string {
+	g.flushPreamble()
+	g.writeln("{")
+	g.indent++
+	for _, stmt := range e.Body.Statements {
+		g.generateStatement(stmt)
+	}
+	g.indent--
+	g.flushPreamble()
+	g.writeln("}")
+	return ""
 }
 
 func (g *CGenerator) generateIfStatement(e *ast.IfExpression) {
@@ -2247,8 +2259,12 @@ func (g *CGenerator) generateExpression(expr ast.Expression) string {
 		return g.generateCastExpression(e)
 	case *ast.FunctionLiteral:
 		return g.generateClosureExpression(e)
+	case *ast.PipeExpression:
+		return g.generatePipeExpression(e)
 	case *ast.AsmExpression:
 		return g.generateAsmExpression(e)
+	case *ast.SpawnExpression:
+		return g.generateSpawnExpression(e)
 	}
 	return ""
 }
@@ -2549,6 +2565,72 @@ func (g *CGenerator) generateBuiltinModuleCall(member *ast.MemberExpression, arg
 	}
 }
 
+func (g *CGenerator) generatePipeExpression(e *ast.PipeExpression) string {
+	left := g.generateExpression(e.Left)
+
+	switch right := e.Right.(type) {
+	case *ast.CallExpression:
+		// a |> f(b, c)  →  f(a, b, c)
+		allArgs := append([]ast.Expression{e.Left}, right.Arguments...)
+		return g.generateCallWithArgs(right.Function, allArgs)
+
+	case *ast.Identifier:
+		// a |> f  →  f(a)
+		return fmt.Sprintf("%s(%s)", g.safeName(right.Value), left)
+
+	case *ast.MemberExpression:
+		// a |> obj.method  →  ClassName_methodName(obj, a)
+		obj := g.generateExpression(right.Object)
+		objType := g.resolveType(right.Object)
+		className := strings.TrimSuffix(objType, "*")
+		return fmt.Sprintf("%s_%s(%s, %s)", className, right.Member.Value, obj, left)
+
+	default:
+		// a |> expr  →  assume expr is callable
+		expr := g.generateExpression(right)
+		return fmt.Sprintf("%s(%s)", expr, left)
+	}
+}
+
+func (g *CGenerator) generateCallWithArgs(fn ast.Expression, args []ast.Expression) string {
+	switch f := fn.(type) {
+	case *ast.Identifier:
+		// Named function call
+		var argStrs []string
+		for _, a := range args {
+			argStrs = append(argStrs, g.generateExpression(a))
+		}
+		return fmt.Sprintf("%s(%s)", g.safeName(f.Value), strings.Join(argStrs, ", "))
+	case *ast.MemberExpression:
+		// Method call: obj.method(a, b)  →  ClassName_methodName(obj, a, b)
+		obj := g.generateExpression(f.Object)
+		objType := g.resolveType(f.Object)
+		if g.isInterfaceRefType(objType) {
+			var argStrs []string
+			argStrs = append(argStrs, obj+".data")
+			for _, a := range args {
+				argStrs = append(argStrs, g.generateExpression(a))
+			}
+			return fmt.Sprintf("%s.vt->%s(%s)", obj, f.Member.Value, strings.Join(argStrs, ", "))
+		}
+		className := strings.TrimSuffix(objType, "*")
+		var argStrs []string
+		argStrs = append(argStrs, obj)
+		for _, a := range args {
+			argStrs = append(argStrs, g.generateExpression(a))
+		}
+		return fmt.Sprintf("%s_%s(%s)", className, f.Member.Value, strings.Join(argStrs, ", "))
+	default:
+		// Function value call
+		fnStr := g.generateExpression(fn)
+		var argStrs []string
+		for _, a := range args {
+			argStrs = append(argStrs, g.generateExpression(a))
+		}
+		return fmt.Sprintf("%s(%s)", fnStr, strings.Join(argStrs, ", "))
+	}
+}
+
 func (g *CGenerator) generateMethodCall(member *ast.MemberExpression, args []ast.Expression) string {
 	obj := g.generateExpression(member.Object)
 	methodName := member.Member.Value
@@ -2558,7 +2640,7 @@ func (g *CGenerator) generateMethodCall(member *ast.MemberExpression, args []ast
 		case "carv_string":
 			return fmt.Sprintf("carv_string_clone(%s)", obj)
 		default:
-			return fmt.Sprintf("%s /* clone not yet implemented for %s */", obj, objType)
+			return obj
 		}
 	}
 

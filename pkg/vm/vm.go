@@ -16,7 +16,7 @@ import (
 type ValueType byte
 
 const (
-	ValInt    ValueType = iota
+	ValInt ValueType = iota
 	ValFloat
 	ValBool
 	ValString
@@ -25,9 +25,41 @@ const (
 	ValResult
 	ValClass
 	ValFunc
+	ValFuture
 	ValNil
 	ValChar
 )
+
+func (vt ValueType) String() string {
+	switch vt {
+	case ValInt:
+		return "int"
+	case ValFloat:
+		return "float"
+	case ValBool:
+		return "bool"
+	case ValString:
+		return "string"
+	case ValArray:
+		return "array"
+	case ValMap:
+		return "map"
+	case ValResult:
+		return "result"
+	case ValClass:
+		return "class"
+	case ValFunc:
+		return "fn"
+	case ValFuture:
+		return "future"
+	case ValNil:
+		return "nil"
+	case ValChar:
+		return "char"
+	default:
+		return "?"
+	}
+}
 
 type Value struct {
 	Type      ValueType
@@ -38,10 +70,15 @@ type Value struct {
 	Arr       []Value
 	M         map[string]Value
 	Result    *ResultVal
+	Future    *FutureVal
 	Class     map[string]Value
 	ClassName string
 	Func      *ir.Function
 	Captures  []Value // captured variables for closures
+}
+
+type FutureVal struct {
+	Value Value
 }
 
 type ResultVal struct {
@@ -51,38 +88,38 @@ type ResultVal struct {
 }
 
 type Frame struct {
-	fn      *ir.Function
-	pc      int
-	locals  []Value
+	fn     *ir.Function
+	pc     int
+	locals []Value
 }
 
 type VM struct {
-	stack     []Value
-	frames    []Frame
-	funcs     map[string]*ir.Function
-	module    *ir.Module
-	entry     string
-	out       io.Writer
-	err       io.Writer
-	in        io.Reader
-	maxStack  int
-	trace     bool
-	tcpHandles map[int]interface{}
+	stack         []Value
+	frames        []Frame
+	funcs         map[string]*ir.Function
+	module        *ir.Module
+	entry         string
+	out           io.Writer
+	err           io.Writer
+	in            io.Reader
+	maxStack      int
+	trace         bool
+	tcpHandles    map[int]interface{}
 	nextTCPHandle int
 }
 
 func New(mod *ir.Module) *VM {
 	vm := &VM{
-		stack:    make([]Value, 0, 4096),
-		frames:   make([]Frame, 0, 256),
-		funcs:    mod.Functions,
-		module:   mod,
-		entry:    mod.Entry,
-		out:      os.Stdout,
-		err:      os.Stderr,
-		in:       os.Stdin,
-		maxStack: 65536,
-		tcpHandles: make(map[int]interface{}),
+		stack:         make([]Value, 0, 4096),
+		frames:        make([]Frame, 0, 256),
+		funcs:         mod.Functions,
+		module:        mod,
+		entry:         mod.Entry,
+		out:           os.Stdout,
+		err:           os.Stderr,
+		in:            os.Stdin,
+		maxStack:      65536,
+		tcpHandles:    make(map[int]interface{}),
 		nextTCPHandle: 1,
 	}
 	return vm
@@ -162,18 +199,37 @@ func (vm *VM) exec(inst *ir.Inst) (Value, error) {
 		vm.push(IntValue(inst.Arg.Int))
 
 	case ir.OpAlloc:
-		vm.setLocal(inst.Label, NilValue())
+		frame := &vm.frames[len(vm.frames)-1]
+		idx := inst.Arg.Idx
+		if idx < 0 || idx >= len(frame.locals) {
+			return NilValue(), fmt.Errorf("invalid local index %d", idx)
+		}
+		frame.locals[idx] = NilValue()
 
 	case ir.OpLoad:
-		vm.push(vm.getLocal(inst.Label))
+		frame := &vm.frames[len(vm.frames)-1]
+		idx := inst.Arg.Idx
+		if idx < 0 || idx >= len(frame.locals) {
+			return NilValue(), fmt.Errorf("invalid local index %d", idx)
+		}
+		vm.push(frame.locals[idx])
 
 	case ir.OpStore:
 		val := vm.pop()
-		vm.setLocal(inst.Label, val)
+		frame := &vm.frames[len(vm.frames)-1]
+		idx := inst.Arg.Idx
+		if idx < 0 || idx >= len(frame.locals) {
+			return NilValue(), fmt.Errorf("invalid local index %d", idx)
+		}
+		frame.locals[idx] = val
 
 	case ir.OpLoadRef:
-		val := vm.getLocal(inst.Label)
-		vm.push(val)
+		frame := &vm.frames[len(vm.frames)-1]
+		idx := inst.Arg.Idx
+		if idx < 0 || idx >= len(frame.locals) {
+			return NilValue(), fmt.Errorf("invalid local index %d", idx)
+		}
+		vm.push(frame.locals[idx])
 
 	case ir.OpNeg:
 		v := vm.pop()
@@ -326,7 +382,7 @@ func (vm *VM) exec(inst *ir.Inst) (Value, error) {
 
 	case ir.OpMapLit:
 		n := int(inst.Arg.Int)
-		m := make(map[string]Value)
+		m := make(map[string]Value, n)
 		for i := 0; i < n; i++ {
 			val := vm.pop()
 			key := vm.pop()
@@ -337,7 +393,10 @@ func (vm *VM) exec(inst *ir.Inst) (Value, error) {
 	case ir.OpMapGet:
 		key := vm.pop()
 		m := vm.pop()
-		k := toString(key)
+		k := key.Str
+		if key.Type != ValString {
+			k = toString(key)
+		}
 		val, ok := m.M[k]
 		if !ok {
 			return NilValue(), fmt.Errorf("key %q not found in map", k)
@@ -348,7 +407,11 @@ func (vm *VM) exec(inst *ir.Inst) (Value, error) {
 		val := vm.pop()
 		key := vm.pop()
 		m := vm.pop()
-		m.M[toString(key)] = val
+		k := key.Str
+		if key.Type != ValString {
+			k = toString(key)
+		}
+		m.M[k] = val
 		vm.push(m)
 
 	case ir.OpMapLen:
@@ -357,16 +420,22 @@ func (vm *VM) exec(inst *ir.Inst) (Value, error) {
 
 	case ir.OpMapKeys:
 		m := vm.pop()
-		keys := make([]Value, 0, len(m.M))
+		keys := make([]Value, len(m.M))
+		i := 0
 		for k := range m.M {
-			keys = append(keys, StrValue(k))
+			keys[i] = StrValue(k)
+			i++
 		}
 		vm.push(ArrayValue(keys))
 
 	case ir.OpMapContains:
 		key := vm.pop()
 		m := vm.pop()
-		_, ok := m.M[toString(key)]
+		k := key.Str
+		if key.Type != ValString {
+			k = toString(key)
+		}
+		_, ok := m.M[k]
 		vm.push(BoolValue(ok))
 
 	case ir.OpStrLen:
@@ -622,7 +691,26 @@ func (vm *VM) exec(inst *ir.Inst) (Value, error) {
 
 	case ir.OpToString:
 		v := vm.pop()
-		vm.push(StrValue(valueStr(v)))
+		s := v.Str
+		switch v.Type {
+		case ValString:
+			// keep existing string value
+		case ValInt, ValChar:
+			s = strconv.FormatInt(v.Int, 10)
+		case ValFloat:
+			s = strconv.FormatFloat(v.Float, 'g', -1, 64)
+		case ValBool:
+			if v.Bool {
+				s = "true"
+			} else {
+				s = "false"
+			}
+		case ValNil:
+			s = "nil"
+		default:
+			s = valueStr(v)
+		}
+		vm.push(StrValue(s))
 
 	case ir.OpInterp:
 		n := int(inst.Arg.Int)
@@ -745,6 +833,33 @@ func (vm *VM) exec(inst *ir.Inst) (Value, error) {
 		newArr[len(arr.Arr)] = item
 		vm.push(ArrayValue(newArr))
 
+	case ir.OpArrayPushLocal:
+		item := vm.pop()
+		frame := &vm.frames[len(vm.frames)-1]
+		idx := inst.Arg.Idx
+		if idx < 0 || idx >= len(frame.locals) {
+			return NilValue(), fmt.Errorf("invalid local index %d", idx)
+		}
+		cur := frame.locals[idx]
+		arr := cur.Arr
+		n := len(arr)
+
+		// In-place append if capacity allows. Carv has move semantics so
+		// this local should be the sole reference to arr.
+		if n < cap(arr) {
+			frame.locals[idx] = Value{Type: ValArray, Arr: append(arr, item)}
+			return NilValue(), nil
+		}
+
+		newCap := n * 2
+		if newCap < n+16 {
+			newCap = n + 16
+		}
+		newArr := make([]Value, n+1, newCap)
+		copy(newArr, arr)
+		newArr[n] = item
+		frame.locals[idx] = Value{Type: ValArray, Arr: newArr}
+
 	case ir.OpArrayHead:
 		arr := vm.pop()
 		if len(arr.Arr) == 0 {
@@ -766,18 +881,24 @@ func (vm *VM) exec(inst *ir.Inst) (Value, error) {
 	// --- Map builtins ---
 	case ir.OpMapValues:
 		m := vm.pop()
-		vals := make([]Value, 0, len(m.M))
+		vals := make([]Value, len(m.M))
+		i := 0
 		for _, v := range m.M {
-			vals = append(vals, v)
+			vals[i] = v
+			i++
 		}
 		vm.push(ArrayValue(vals))
 
 	case ir.OpMapDelete:
 		key := vm.pop()
 		m := vm.pop()
+		keyStr := key.Str
+		if key.Type != ValString {
+			keyStr = toString(key)
+		}
 		newMap := make(map[string]Value, len(m.M))
 		for k, v := range m.M {
-			if k != toString(key) {
+			if k != keyStr {
 				newMap[k] = v
 			}
 		}
@@ -1087,6 +1208,29 @@ func (vm *VM) exec(inst *ir.Inst) (Value, error) {
 		}
 		vm.push(result)
 
+	case ir.OpMakeFuture:
+		val := vm.pop()
+		vm.push(Value{Type: ValFuture, Future: &FutureVal{Value: val}})
+
+	case ir.OpAwait:
+		val := vm.pop()
+		if val.Type != ValFuture {
+			return NilValue(), fmt.Errorf("await requires Future value, got %s", val.Type.String())
+		}
+		vm.push(val.Future.Value)
+
+	case ir.OpSpawn:
+		fnName := inst.Label
+		fn, ok := vm.funcs[fnName]
+		if !ok {
+			return NilValue(), fmt.Errorf("spawn function %q not found", fnName)
+		}
+		_, err := vm.callFunction(fn, nil, nil)
+		if err != nil {
+			return NilValue(), err
+		}
+		vm.push(NilValue())
+
 	default:
 		return NilValue(), fmt.Errorf("unknown op: %s", inst.Op)
 	}
@@ -1097,6 +1241,12 @@ func (vm *VM) exec(inst *ir.Inst) (Value, error) {
 func (vm *VM) callFunction(fn *ir.Function, args []Value, captures []Value) (Value, error) {
 	locals := make([]Value, len(fn.Locals))
 	for i, l := range fn.Locals {
+		if i < len(fn.Params) {
+			if i < len(args) {
+				locals[i] = args[i]
+				continue
+			}
+		}
 		if l.Type == ir.IRInt {
 			locals[i] = IntValue(0)
 		} else if l.Type == ir.IRFloat {
@@ -1106,20 +1256,12 @@ func (vm *VM) callFunction(fn *ir.Function, args []Value, captures []Value) (Val
 		}
 	}
 
-	for i := range fn.Params {
-		if i < len(args) {
-			locals[i] = args[i]
-		}
-	}
-
 	// Copy captured variables into their assigned local slots
-	for i, name := range fn.Captures {
+	for i := range fn.CaptureIdx {
 		if i < len(captures) {
-			for j, l := range fn.Locals {
-				if l.Name == name {
-					locals[j] = captures[i]
-					break
-				}
+			idx := fn.CaptureIdx[i]
+			if idx >= 0 && idx < len(locals) {
+				locals[idx] = captures[i]
 			}
 		}
 	}
@@ -1187,40 +1329,14 @@ func (vm *VM) pop2() (Value, Value) {
 	return vm.pop(), vm.pop()
 }
 
-func (vm *VM) getLocal(name string) Value {
-	if len(vm.frames) == 0 {
-		return NilValue()
-	}
-	frame := &vm.frames[len(vm.frames)-1]
-	for i, l := range frame.fn.Locals {
-		if l.Name == name {
-			return frame.locals[i]
-		}
-	}
-	return NilValue()
-}
-
-func (vm *VM) setLocal(name string, val Value) {
-	if len(vm.frames) == 0 {
-		return
-	}
-	frame := &vm.frames[len(vm.frames)-1]
-	for i, l := range frame.fn.Locals {
-		if l.Name == name {
-			frame.locals[i] = val
-			return
-		}
-	}
-}
-
 func (vm *VM) dumpState(inst *ir.Inst) {
 	frame := &vm.frames[len(vm.frames)-1]
 	stackVals := make([]string, len(vm.stack))
 	for i, v := range vm.stack {
 		stackVals[i] = valueStr(v)
 	}
-		fmt.Fprintf(vm.err, "[pc=%d] %s | stack=[%s] | locals=%v\n",
-			frame.pc-1, ir.FormatInst(frame.pc-1, inst), strings.Join(stackVals, ", "), frame.locals)
+	fmt.Fprintf(vm.err, "[pc=%d] %s | stack=[%s] | locals=%v\n",
+		frame.pc-1, ir.FormatInst(frame.pc-1, inst), strings.Join(stackVals, ", "), frame.locals)
 }
 
 func IntValue(v int64) Value {
@@ -1290,9 +1406,9 @@ func toString(v Value) string {
 	case ValString:
 		return v.Str
 	case ValInt, ValChar:
-		return fmt.Sprintf("%d", v.Int)
+		return strconv.FormatInt(v.Int, 10)
 	case ValFloat:
-		return fmt.Sprintf("%g", v.Float)
+		return strconv.FormatFloat(v.Float, 'g', -1, 64)
 	case ValBool:
 		if v.Bool {
 			return "true"
