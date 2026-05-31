@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"fmt"
 	"github.com/dev-dami/carv/pkg/ast"
 	"github.com/dev-dami/carv/pkg/lexer"
 )
@@ -70,9 +71,45 @@ func (p *Parser) parseTypeExpr() ast.TypeExpr {
 		return &ast.NamedType{Token: p.curToken, Name: &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}}
 	case lexer.TOKEN_LBRACKET:
 		return p.parseArrayType()
+	case lexer.TOKEN_FN:
+		return p.parseFunctionTypeExpr()
 	default:
 		return nil
 	}
+}
+
+func (p *Parser) parseFunctionTypeExpr() ast.TypeExpr {
+	ft := &ast.FunctionType{Token: p.curToken}
+	p.nextToken()
+
+	if !p.curTokenIs(lexer.TOKEN_LPAREN) {
+		p.errors = append(p.errors, fmt.Sprintf("line %d:%d: expected ( after fn in function type",
+			p.curToken.Line, p.curToken.Column))
+		return nil
+	}
+	p.nextToken()
+
+	for !p.curTokenIs(lexer.TOKEN_RPAREN) {
+		paramType := p.parseTypeExpr()
+		if paramType != nil {
+			ft.Parameters = append(ft.Parameters, paramType)
+		}
+		// Advance past the parsed type (parseTypeExpr for basic types doesn't advance)
+		if !p.curTokenIs(lexer.TOKEN_COMMA) && !p.curTokenIs(lexer.TOKEN_RPAREN) {
+			p.nextToken()
+		}
+		if p.curTokenIs(lexer.TOKEN_COMMA) {
+			p.nextToken()
+		}
+	}
+	p.nextToken()
+
+	if p.curTokenIs(lexer.TOKEN_ARROW) {
+		p.nextToken()
+		ft.ReturnType = p.parseTypeExpr()
+	}
+
+	return ft
 }
 
 func (p *Parser) parseArrayType() ast.TypeExpr {

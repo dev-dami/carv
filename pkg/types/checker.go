@@ -1070,6 +1070,16 @@ func (c *Checker) resolveTypeExpr(typeExpr ast.TypeExpr) Type {
 	case *ast.VolatileType:
 		inner := c.resolveTypeExpr(t.Inner)
 		return &VolatileType{Inner: inner}
+	case *ast.FunctionType:
+		paramTypes := make([]Type, len(t.Parameters))
+		for i, p := range t.Parameters {
+			paramTypes[i] = c.resolveTypeExpr(p)
+		}
+		var retType Type = Void
+		if t.ReturnType != nil {
+			retType = c.resolveTypeExpr(t.ReturnType)
+		}
+		return &FunctionType{Params: paramTypes, Return: retType}
 	}
 	return Any
 }

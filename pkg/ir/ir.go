@@ -115,6 +115,7 @@ const (
 
 	// Array builtins
 	OpArrayPush
+	OpArrayPushLocal
 	OpArrayHead
 	OpArrayTail
 
@@ -161,6 +162,11 @@ const (
 	// Closure support
 	OpMakeClosure
 	OpCallFunc
+
+	// Async/await support
+	OpMakeFuture
+	OpAwait
+	OpSpawn
 )
 
 func (o Op) String() string {
@@ -339,6 +345,8 @@ func (o Op) String() string {
 		return "char_at"
 	case OpArrayPush:
 		return "array_push"
+	case OpArrayPushLocal:
+		return "array_push_local"
 	case OpArrayHead:
 		return "array_head"
 	case OpArrayTail:
@@ -399,6 +407,12 @@ func (o Op) String() string {
 		return "make_closure"
 	case OpCallFunc:
 		return "call_func"
+	case OpMakeFuture:
+		return "make_future"
+	case OpAwait:
+		return "await"
+	case OpSpawn:
+		return "spawn"
 	}
 	return "?"
 }
@@ -417,6 +431,7 @@ const (
 	IRResult
 	IRClass
 	IRFunc
+	IRFuture
 	IRVoid
 	IRNil
 )
@@ -445,6 +460,8 @@ func (t IRType) String() string {
 		return "class"
 	case IRFunc:
 		return "fn"
+	case IRFuture:
+		return "future"
 	case IRVoid:
 		return "void"
 	case IRNil:
@@ -474,13 +491,15 @@ type Local struct {
 }
 
 type Function struct {
-	Name      string
-	Params    []Local
-	Returns   IRType
-	Locals    []Local
-	Body      []Inst
-	Variadic  bool
-	Captures  []string // names of variables captured from enclosing scopes
+	Name       string
+	Params     []Local
+	Returns    IRType
+	Locals     []Local
+	Body       []Inst
+	Variadic   bool
+	Async      bool
+	Captures   []string // names of variables captured from enclosing scopes
+	CaptureIdx []int
 }
 
 type Module struct {
@@ -517,6 +536,9 @@ func ResolveType(t types.Type) IRType {
 	}
 	if _, ok := t.(*types.FunctionType); ok {
 		return IRFunc
+	}
+	if _, ok := t.(*types.FutureType); ok {
+		return IRFuture
 	}
 	return IRAny
 }
@@ -577,6 +599,12 @@ func FormatInst(i int, inst *Inst) string {
 		return "make_closure " + inst.Label
 	case OpCallFunc:
 		return "call_func(" + strconv.FormatInt(inst.Arg.Int, 10) + ")"
+	case OpMakeFuture:
+		return "make_future"
+	case OpAwait:
+		return "await"
+	case OpSpawn:
+		return "spawn"
 	default:
 		return inst.Op.String()
 	}

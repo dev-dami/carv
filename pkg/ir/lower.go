@@ -15,6 +15,7 @@ type Lowerer struct {
 	fn            *Function
 	mod           *Module
 	labelCounter  int
+	spawnCounter  int
 	loopBreaks    []string
 	loopContinues []string
 	errors        []string
@@ -144,6 +145,7 @@ func (l *Lowerer) lowerFunction(fn *ast.FunctionStatement) *Function {
 		Name:    fn.Name.Value,
 		Returns: l.fnReturns[fn.Name.Value],
 		Body:    make([]Inst, 0),
+		Async:   fn.Async,
 	}
 
 	// Register early so recursive calls can find this function
@@ -165,6 +167,9 @@ func (l *Lowerer) lowerFunction(fn *ast.FunctionStatement) *Function {
 		l.emit(Inst{Op: OpReturn})
 	} else {
 		l.emit(Inst{Op: OpConstNil, Type: l.fn.Returns})
+		if l.fn.Async {
+			l.emit(Inst{Op: OpMakeFuture})
+		}
 		l.emit(Inst{Op: OpReturnVal, Type: l.fn.Returns})
 	}
 
@@ -190,22 +195,25 @@ func (l *Lowerer) lowerStatement(stmt ast.Statement) {
 		if irt == IRAny {
 			irt = l.inferExprType(s.Value)
 		}
-		l.allocSlot(s.Name.Value, irt)
+		idx := l.allocSlot(s.Name.Value, irt)
 		l.lowerExpression(s.Value)
-		l.emit(Inst{Op: OpStore, Label: s.Name.Value})
+		l.emit(Inst{Op: OpStore, Arg: Operand{Idx: idx}})
 
 	case *ast.ConstStatement:
 		irt := l.resolveIRType(s.Type)
 		if irt == IRAny {
 			irt = l.inferExprType(s.Value)
 		}
-		l.allocSlot(s.Name.Value, irt)
+		idx := l.allocSlot(s.Name.Value, irt)
 		l.lowerExpression(s.Value)
-		l.emit(Inst{Op: OpStore, Label: s.Name.Value})
+		l.emit(Inst{Op: OpStore, Arg: Operand{Idx: idx}})
 
 	case *ast.ReturnStatement:
 		if s.ReturnValue != nil {
 			l.lowerExpression(s.ReturnValue)
+			if l.fn != nil && l.fn.Async {
+				l.emit(Inst{Op: OpMakeFuture})
+			}
 			l.emit(Inst{Op: OpReturnVal})
 		} else {
 			l.emit(Inst{Op: OpReturn})
@@ -290,9 +298,9 @@ func (l *Lowerer) lowerForInStatement(s *ast.ForInStatement) {
 	l.loopContinues = append(l.loopContinues, contLabel)
 
 	irt := l.inferExprType(s.Iterable)
-	l.allocSlot(iterVar, irt)
+	iterIdx := l.allocSlot(iterVar, irt)
 	l.lowerExpression(s.Iterable)
-	l.emit(Inst{Op: OpStore, Label: iterVar})
+	l.emit(Inst{Op: OpStore, Arg: Operand{Idx: iterIdx}})
 
 	switch irt {
 	case IRString, IRArray:
@@ -300,15 +308,15 @@ func (l *Lowerer) lowerForInStatement(s *ast.ForInStatement) {
 		if irt == IRArray {
 			valType = IRAny
 		}
-		l.allocSlot(idxVar, IRInt)
-		l.allocSlot(s.Value.Value, valType)
+		idxIdx := l.allocSlot(idxVar, IRInt)
+		valIdx := l.allocSlot(s.Value.Value, valType)
 
 		l.emit(Inst{Op: OpConstInt, Arg: Operand{Int: 0}, Type: IRInt})
-		l.emit(Inst{Op: OpStore, Label: idxVar})
+		l.emit(Inst{Op: OpStore, Arg: Operand{Idx: idxIdx}})
 
 		l.emit(Inst{Op: OpLabel, Label: bodyLabel})
-		l.emit(Inst{Op: OpLoad, Label: idxVar})
-		l.emit(Inst{Op: OpLoad, Label: iterVar})
+		l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: idxIdx}})
+		l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: iterIdx}})
 		if irt == IRString {
 			l.emit(Inst{Op: OpStrLen, Type: IRInt})
 		} else {
@@ -317,55 +325,55 @@ func (l *Lowerer) lowerForInStatement(s *ast.ForInStatement) {
 		l.emit(Inst{Op: OpLt, Type: IRBool})
 		l.emit(Inst{Op: OpJmpIf, Label: endLabel})
 
-		l.emit(Inst{Op: OpLoad, Label: iterVar})
-		l.emit(Inst{Op: OpLoad, Label: idxVar})
+		l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: iterIdx}})
+		l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: idxIdx}})
 		if irt == IRString {
 			l.emit(Inst{Op: OpStrIndex, Type: valType})
 		} else {
 			l.emit(Inst{Op: OpArrayGet, Type: valType})
 		}
-		l.emit(Inst{Op: OpStore, Label: s.Value.Value})
+		l.emit(Inst{Op: OpStore, Arg: Operand{Idx: valIdx}})
 
 		l.lowerBlock(s.Body)
 		l.emit(Inst{Op: OpLabel, Label: contLabel})
 
-		l.emit(Inst{Op: OpLoad, Label: idxVar})
+		l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: idxIdx}})
 		l.emit(Inst{Op: OpConstInt, Arg: Operand{Int: 1}, Type: IRInt})
 		l.emit(Inst{Op: OpAdd, Type: IRInt})
-		l.emit(Inst{Op: OpStore, Label: idxVar})
+		l.emit(Inst{Op: OpStore, Arg: Operand{Idx: idxIdx}})
 		l.emit(Inst{Op: OpJmp, Label: bodyLabel})
 		l.emit(Inst{Op: OpLabel, Label: endLabel})
 
 	case IRMap:
-		l.emit(Inst{Op: OpLoad, Label: iterVar})
+		l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: iterIdx}})
 		l.emit(Inst{Op: OpMapKeys, Type: IRArray})
-		l.emit(Inst{Op: OpStore, Label: idxVar})
-		l.allocSlot(idxVar, IRArray)
+		idxIdx := l.allocSlot(idxVar, IRArray)
+		l.emit(Inst{Op: OpStore, Arg: Operand{Idx: idxIdx}})
 		iVar := idxVar + "_i"
-		l.allocSlot(iVar, IRInt)
+		iIdx := l.allocSlot(iVar, IRInt)
 		l.emit(Inst{Op: OpConstInt, Arg: Operand{Int: 0}, Type: IRInt})
-		l.emit(Inst{Op: OpStore, Label: iVar})
-		l.allocSlot(s.Value.Value, IRString)
+		l.emit(Inst{Op: OpStore, Arg: Operand{Idx: iIdx}})
+		valIdx := l.allocSlot(s.Value.Value, IRString)
 
 		l.emit(Inst{Op: OpLabel, Label: bodyLabel})
-		l.emit(Inst{Op: OpLoad, Label: iVar})
-		l.emit(Inst{Op: OpLoad, Label: idxVar})
+		l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: iIdx}})
+		l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: idxIdx}})
 		l.emit(Inst{Op: OpArrayLen, Type: IRInt})
 		l.emit(Inst{Op: OpLt, Type: IRBool})
 		l.emit(Inst{Op: OpJmpIf, Label: endLabel})
 
-		l.emit(Inst{Op: OpLoad, Label: idxVar})
-		l.emit(Inst{Op: OpLoad, Label: iVar})
+		l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: idxIdx}})
+		l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: iIdx}})
 		l.emit(Inst{Op: OpArrayGet, Type: IRString})
-		l.emit(Inst{Op: OpStore, Label: s.Value.Value})
+		l.emit(Inst{Op: OpStore, Arg: Operand{Idx: valIdx}})
 
 		l.lowerBlock(s.Body)
 		l.emit(Inst{Op: OpLabel, Label: contLabel})
 
-		l.emit(Inst{Op: OpLoad, Label: iVar})
+		l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: iIdx}})
 		l.emit(Inst{Op: OpConstInt, Arg: Operand{Int: 1}, Type: IRInt})
 		l.emit(Inst{Op: OpAdd, Type: IRInt})
-		l.emit(Inst{Op: OpStore, Label: iVar})
+		l.emit(Inst{Op: OpStore, Arg: Operand{Idx: iIdx}})
 		l.emit(Inst{Op: OpJmp, Label: bodyLabel})
 		l.emit(Inst{Op: OpLabel, Label: endLabel})
 	}
@@ -445,7 +453,7 @@ func (l *Lowerer) lowerExpression(expr ast.Expression) IRType {
 				irt = ResolveType(ti)
 			}
 		}
-		l.emit(Inst{Op: OpLoad, Label: e.Value, Type: irt})
+		l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: l.lookupSlot(e.Value)}, Type: irt})
 		return irt
 
 	case *ast.PrefixExpression:
@@ -582,8 +590,9 @@ func (l *Lowerer) lowerExpression(expr ast.Expression) IRType {
 		// Add captured variables as locals in the closure function
 		for _, name := range captures {
 			t := lookupSlotTypeInScope(oldScope, oldFn, name)
-			l.allocSlot(name, t)
+			idx := l.allocSlot(name, t)
 			l.fn.Captures = append(l.fn.Captures, name)
+			l.fn.CaptureIdx = append(l.fn.CaptureIdx, idx)
 		}
 
 		// Lower function body
@@ -609,7 +618,7 @@ func (l *Lowerer) lowerExpression(expr ast.Expression) IRType {
 		// Emit capture loads — each OpLoad reads from the enclosing frame's locals
 		for _, name := range captures {
 			t := l.lookupSlotType(name)
-			l.emit(Inst{Op: OpLoad, Label: name, Type: t})
+			l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: l.lookupSlot(name)}, Type: t})
 		}
 
 		// Emit closure creation — pops capture values from stack
@@ -621,6 +630,15 @@ func (l *Lowerer) lowerExpression(expr ast.Expression) IRType {
 
 	case *ast.CastExpression:
 		return l.lowerCast(e)
+
+	case *ast.AwaitExpression:
+		irt := l.lowerExpression(e.Value)
+		l.emit(Inst{Op: OpAwait, Type: irt})
+		return irt
+
+	case *ast.SpawnExpression:
+		l.lowerSpawn(e)
+		return IRNil
 
 	default:
 		l.error("unknown expression %T", expr)
@@ -692,11 +710,23 @@ func (l *Lowerer) lowerAssign(e *ast.AssignExpression) IRType {
 	irt := l.inferExprType(e.Right)
 
 	if e.Operator == "=" {
+		if leftIdent, ok := e.Left.(*ast.Identifier); ok {
+			if call, ok := e.Right.(*ast.CallExpression); ok {
+				if fnIdent, ok := call.Function.(*ast.Identifier); ok && fnIdent.Value == "push" && len(call.Arguments) == 2 {
+					if argIdent, ok := call.Arguments[0].(*ast.Identifier); ok && argIdent.Value == leftIdent.Value {
+						l.lowerExpression(call.Arguments[1])
+						l.emit(Inst{Op: OpArrayPushLocal, Arg: Operand{Idx: l.lookupSlot(leftIdent.Value)}, Type: IRArray})
+						return irt
+					}
+				}
+			}
+		}
+
 		// Simple assignment: rhs → store lhs
 		l.lowerExpression(e.Right)
 		switch left := e.Left.(type) {
 		case *ast.Identifier:
-			l.emit(Inst{Op: OpStore, Label: left.Value, Type: irt})
+			l.emit(Inst{Op: OpStore, Arg: Operand{Idx: l.lookupSlot(left.Value)}, Type: irt})
 		case *ast.IndexExpression:
 			l.lowerExpression(left.Left)
 			l.lowerExpression(left.Index)
@@ -716,7 +746,7 @@ func (l *Lowerer) lowerAssign(e *ast.AssignExpression) IRType {
 			return irt
 		}
 
-		l.emit(Inst{Op: OpLoad, Label: leftIdent.Value, Type: irt})
+		l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: l.lookupSlot(leftIdent.Value)}, Type: irt})
 		l.lowerExpression(e.Right)
 
 		switch e.Operator {
@@ -733,7 +763,7 @@ func (l *Lowerer) lowerAssign(e *ast.AssignExpression) IRType {
 		default:
 			l.error("unknown compound assignment operator %s", e.Operator)
 		}
-		l.emit(Inst{Op: OpStore, Label: leftIdent.Value, Type: irt})
+		l.emit(Inst{Op: OpStore, Arg: Operand{Idx: l.lookupSlot(leftIdent.Value)}, Type: irt})
 	}
 	return irt
 }
@@ -758,170 +788,252 @@ func (l *Lowerer) lowerCall(e *ast.CallExpression) IRType {
 	if ident, ok := e.Function.(*ast.Identifier); ok {
 		switch ident.Value {
 		case "print":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpPrint})
 			return IRVoid
 		case "println":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpPrintln})
 			return IRVoid
 		case "len":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpLen, Type: IRInt})
 			return IRInt
 		case "contains":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpContains, Type: IRBool})
 			return IRBool
 		case "keys":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpKeys, Type: IRArray})
 			return IRArray
 		case "assert":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpAssert})
 			return IRVoid
 		case "int":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpToInt, Type: IRInt})
 			return IRInt
 		case "float":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpToFloat, Type: IRFloat})
 			return IRFloat
 		case "string":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpToString, Type: IRString})
 			return IRString
 		case "readline":
 			l.emit(Inst{Op: OpReadLine, Type: IRString})
 			return IRString
 		case "str":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpToString, Type: IRString})
 			return IRString
 		case "type_of":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpTypeOf, Type: IRString})
 			return IRString
 		case "parse_int":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpParseInt, Type: IRInt})
 			return IRInt
 		case "parse_float":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpParseFloat, Type: IRFloat})
 			return IRFloat
 		case "push":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpArrayPush, Type: IRArray})
 			return IRArray
 		case "head":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpArrayHead, Type: IRAny})
 			return IRAny
 		case "tail":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpArrayTail, Type: IRArray})
 			return IRArray
 		case "split":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpStrSplit, Type: IRArray})
 			return IRArray
 		case "join":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpStrJoin, Type: IRString})
 			return IRString
 		case "trim":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpStrTrim, Type: IRString})
 			return IRString
 		case "substr":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpStrSubstr, Type: IRString})
 			return IRString
 		case "starts_with":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpStrStartsWith, Type: IRBool})
 			return IRBool
 		case "ends_with":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpStrEndsWith, Type: IRBool})
 			return IRBool
 		case "replace":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpStrReplace, Type: IRString})
 			return IRString
 		case "index_of":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpStrIndexOf, Type: IRInt})
 			return IRInt
 		case "to_upper":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpStrToUpper, Type: IRString})
 			return IRString
 		case "to_lower":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpStrToLower, Type: IRString})
 			return IRString
 		case "ord":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpOrd, Type: IRInt})
 			return IRInt
 		case "chr":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpChr, Type: IRChar})
 			return IRChar
 		case "char_at":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpCharAt, Type: IRChar})
 			return IRChar
 		case "values":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpMapValues, Type: IRArray})
 			return IRArray
 		case "has_key":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpContains, Type: IRBool})
 			return IRBool
 		case "set":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpMapSet, Type: IRMap})
 			return IRMap
 		case "delete":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpMapDelete, Type: IRMap})
 			return IRMap
 		case "read_file":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpReadFile, Type: IRString})
 			return IRString
 		case "write_file":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpWriteFile})
 			return IRVoid
 		case "append_file":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpAppendFile})
 			return IRVoid
 		case "file_exists":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpFileExists, Type: IRBool})
 			return IRBool
 		case "mkdir":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpMkDir})
 			return IRVoid
 		case "remove_file":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpRemoveFile})
 			return IRVoid
 		case "rename_file":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpRenameFile})
 			return IRVoid
 		case "read_dir":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpReadDir, Type: IRArray})
 			return IRArray
 		case "cwd":
@@ -931,47 +1043,69 @@ func (l *Lowerer) lowerCall(e *ast.CallExpression) IRType {
 			l.emit(Inst{Op: OpArgs, Type: IRArray})
 			return IRArray
 		case "exec":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpExec, Type: IRInt, Arg: Operand{Int: int64(len(e.Arguments))}})
 			return IRInt
 		case "exec_output":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpExecOutput, Type: IRString, Arg: Operand{Int: int64(len(e.Arguments))}})
 			return IRString
 		case "exit":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpExit})
 			return IRVoid
 		case "panic":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpPanic})
 			return IRVoid
 		case "getenv":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpGetEnv, Type: IRString})
 			return IRString
 		case "setenv":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpSetEnv})
 			return IRVoid
 		case "tcp_listen":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpTCPListen, Type: IRInt})
 			return IRInt
 		case "tcp_accept":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpTCPAccept, Type: IRInt})
 			return IRInt
 		case "tcp_read":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpTCPRead, Type: IRString})
 			return IRString
 		case "tcp_write":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpTCPWrite, Type: IRInt})
 			return IRInt
 		case "tcp_close":
-			for _, arg := range e.Arguments { l.lowerExpression(arg) }
+			for _, arg := range e.Arguments {
+				l.lowerExpression(arg)
+			}
 			l.emit(Inst{Op: OpTCPClose, Type: IRBool})
 			return IRBool
 		}
@@ -1027,7 +1161,7 @@ func (l *Lowerer) lowerMethodCall(member *ast.MemberExpression, args []ast.Expre
 		l.emit(Inst{Op: OpCallVirt, Label: methodName, Arg: Operand{Int: argc}, Type: irt})
 	} else if className != "" {
 		// Direct class dispatch: call {ClassName}_{MethodName}
-		l.emit(Inst{Op: OpCall, Label: className+"_"+methodName, Arg: Operand{Int: argc}, Type: irt})
+		l.emit(Inst{Op: OpCall, Label: className + "_" + methodName, Arg: Operand{Int: argc}, Type: irt})
 	} else {
 		// Unqualified fallback (should not normally happen)
 		l.emit(Inst{Op: OpCall, Label: methodName, Arg: Operand{Int: argc}, Type: irt})
@@ -1093,6 +1227,7 @@ func (l *Lowerer) lowerMethodDecl(mod *Module, className string, method *ast.Met
 		Name:    fnName,
 		Returns: retType,
 		Body:    make([]Inst, 0),
+		Async:   method.Async,
 	}
 
 	// Self receiver becomes the first parameter
@@ -1119,10 +1254,41 @@ func (l *Lowerer) lowerMethodDecl(mod *Module, className string, method *ast.Met
 		l.emit(Inst{Op: OpReturn})
 	} else {
 		l.emit(Inst{Op: OpConstNil, Type: retType})
+		if method.Async {
+			l.emit(Inst{Op: OpMakeFuture})
+		}
 		l.emit(Inst{Op: OpReturnVal, Type: retType})
 	}
 
 	mod.Functions[fnName] = l.fn
+}
+
+func (l *Lowerer) lowerSpawn(expr *ast.SpawnExpression) {
+	l.spawnCounter++
+	fnName := fmt.Sprintf("__spawn_%d", l.spawnCounter)
+
+	oldScope := l.scope
+	oldFn := l.fn
+
+	l.scope = newLowerScope(nil)
+	l.fn = &Function{
+		Name:    fnName,
+		Returns: IRVoid,
+		Body:    make([]Inst, 0),
+	}
+
+	for _, stmt := range expr.Body.Statements {
+		l.lowerStatement(stmt)
+	}
+
+	l.emit(Inst{Op: OpReturn})
+
+	l.mod.Functions[fnName] = l.fn
+
+	l.scope = oldScope
+	l.fn = oldFn
+
+	l.emit(Inst{Op: OpSpawn, Label: fnName})
 }
 
 func (l *Lowerer) lowerIfExpression(e *ast.IfExpression) IRType {
@@ -1240,8 +1406,8 @@ func (l *Lowerer) lowerMatch(e *ast.MatchExpression) IRType {
 	endLabel := l.newLabel("match_end")
 
 	l.lowerExpression(e.Value)
-	l.emit(Inst{Op: OpStore, Label: "__match_val"})
-	l.allocSlot("__match_val", IRAny)
+	matchIdx := l.allocSlot("__match_val", IRAny)
+	l.emit(Inst{Op: OpStore, Arg: Operand{Idx: matchIdx}})
 
 	isResultMatch := false
 	for _, arm := range e.Arms {
@@ -1259,7 +1425,7 @@ func (l *Lowerer) lowerMatch(e *ast.MatchExpression) IRType {
 		okLabel := l.newLabel("match_ok")
 		errLabel := l.newLabel("match_err")
 
-		l.emit(Inst{Op: OpLoad, Label: "__match_val"})
+		l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: matchIdx}})
 		l.emit(Inst{Op: OpMatchResult, Label: okLabel, Arg: Operand{Str: errLabel}})
 
 		for _, arm := range e.Arms {
@@ -1267,10 +1433,10 @@ func (l *Lowerer) lowerMatch(e *ast.MatchExpression) IRType {
 				l.emit(Inst{Op: OpLabel, Label: okLabel})
 				if okPat.Value != nil {
 					if ident, ok := okPat.Value.(*ast.Identifier); ok {
-						l.allocSlot(ident.Value, IRAny)
-						l.emit(Inst{Op: OpLoad, Label: "__match_val"})
+						identIdx := l.allocSlot(ident.Value, IRAny)
+						l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: matchIdx}})
 						l.emit(Inst{Op: OpGetField, Label: "ok"})
-						l.emit(Inst{Op: OpStore, Label: ident.Value})
+						l.emit(Inst{Op: OpStore, Arg: Operand{Idx: identIdx}})
 					}
 				}
 				if block, ok := arm.Body.(*ast.BlockExpression); ok {
@@ -1283,10 +1449,10 @@ func (l *Lowerer) lowerMatch(e *ast.MatchExpression) IRType {
 				l.emit(Inst{Op: OpLabel, Label: errLabel})
 				if errPat.Value != nil {
 					if ident, ok := errPat.Value.(*ast.Identifier); ok {
-						l.allocSlot(ident.Value, IRAny)
-						l.emit(Inst{Op: OpLoad, Label: "__match_val"})
+						identIdx := l.allocSlot(ident.Value, IRAny)
+						l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: matchIdx}})
 						l.emit(Inst{Op: OpGetField, Label: "err"})
-						l.emit(Inst{Op: OpStore, Label: ident.Value})
+						l.emit(Inst{Op: OpStore, Arg: Operand{Idx: identIdx}})
 					}
 				}
 				if block, ok := arm.Body.(*ast.BlockExpression); ok {
@@ -1302,7 +1468,7 @@ func (l *Lowerer) lowerMatch(e *ast.MatchExpression) IRType {
 			armLabel := l.newLabel("match_arm")
 			nextLabel := l.newLabel("match_next")
 
-			l.emit(Inst{Op: OpLoad, Label: "__match_val"})
+			l.emit(Inst{Op: OpLoad, Arg: Operand{Idx: matchIdx}})
 
 			if ident, ok := arm.Pattern.(*ast.Identifier); ok && ident.Value == "_" {
 				l.emit(Inst{Op: OpNop})
@@ -1366,6 +1532,17 @@ func (l *Lowerer) allocSlot(name string, t IRType) int {
 	l.scope.names = append(l.scope.names, name)
 	l.fn.Locals = append(l.fn.Locals, Local{Name: name, Type: t})
 	return idx
+}
+
+// lookupSlot returns the local variable index for the given name by traversing
+// scopes from innermost to outermost. Returns -1 if not found.
+func (l *Lowerer) lookupSlot(name string) int {
+	for s := l.scope; s != nil; s = s.parent {
+		if idx, ok := s.slots[name]; ok {
+			return idx
+		}
+	}
+	return -1
 }
 
 func (l *Lowerer) lookupSlotType(name string) IRType {
