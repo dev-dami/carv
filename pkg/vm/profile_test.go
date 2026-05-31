@@ -1,9 +1,10 @@
 package vm
 
 import (
-	"testing"
 	"os"
 	"runtime/pprof"
+	"testing"
+
 	"github.com/dev-dami/carv/pkg/ir"
 	"github.com/dev-dami/carv/pkg/lexer"
 	"github.com/dev-dami/carv/pkg/parser"
@@ -22,8 +23,14 @@ fn main() {
     println(len(arr));
 }
 `
-	f, _ := os.Create("/tmp/cpu.pprof")
-	pprof.StartCPUProfile(f)
+	f, err := os.Create("/tmp/cpu.pprof")
+	if err != nil {
+		t.Fatalf("create profile file: %v", err)
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		_ = f.Close()
+		t.Fatalf("start cpu profile: %v", err)
+	}
 	
 	for run := 0; run < 20; run++ {
 		l := lexer.New(source)
@@ -34,9 +41,15 @@ fn main() {
 		lowerer := ir.NewLowerer(checker.TypeInfo())
 		mod := lowerer.Lower(prog)
 		v := New(mod)
-		v.Run()
+		if _, err := v.Run(); err != nil {
+			pprof.StopCPUProfile()
+			_ = f.Close()
+			t.Fatalf("run failed: %v", err)
+		}
 	}
-	
+
 	pprof.StopCPUProfile()
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close profile file: %v", err)
+	}
 }

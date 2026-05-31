@@ -276,7 +276,9 @@ fn main() {
 	for i := 0; i < runs; i++ {
 		vm2 := New(mod)
 		vm2.SetOutput(&buf)
-		vm2.Run()
+		if _, err := vm2.Run(); err != nil {
+			b.Fatalf("run failed: %v", err)
+		}
 	}
 
 	_ = totalInsts

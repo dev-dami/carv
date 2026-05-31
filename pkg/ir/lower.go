@@ -1169,20 +1169,6 @@ func (l *Lowerer) lowerMethodCall(member *ast.MemberExpression, args []ast.Expre
 	return irt
 }
 
-func (l *Lowerer) inferClassName(expr ast.Expression) string {
-	if ti, ok := l.typeInfo[expr]; ok {
-		if cls, ok := ti.(*types.ClassType); ok {
-			return cls.Name
-		}
-		if ref, ok := ti.(*types.RefType); ok {
-			if cls, ok := ref.Inner.(*types.ClassType); ok {
-				return cls.Name
-			}
-		}
-	}
-	return ""
-}
-
 func (l *Lowerer) classNameForMethodCall(member *ast.MemberExpression) (string, bool) {
 	// Check if the receiver is an interface reference (needs virtual dispatch)
 	if ti, ok := l.typeInfo[member.Object]; ok {

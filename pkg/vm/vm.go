@@ -965,15 +965,15 @@ func (vm *VM) exec(inst *ir.Inst) (Value, error) {
 	case ir.OpWriteFile:
 		content := vm.pop()
 		path := vm.pop()
-		os.WriteFile(path.Str, []byte(content.Str), 0644)
+		_ = os.WriteFile(path.Str, []byte(content.Str), 0644)
 
 	case ir.OpAppendFile:
 		content := vm.pop()
 		path := vm.pop()
 		f, err := os.OpenFile(path.Str, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err == nil {
-			f.WriteString(content.Str)
-			f.Close()
+			_, _ = f.WriteString(content.Str)
+			_ = f.Close()
 		}
 
 	case ir.OpFileExists:
@@ -983,16 +983,16 @@ func (vm *VM) exec(inst *ir.Inst) (Value, error) {
 
 	case ir.OpMkDir:
 		path := vm.pop()
-		os.MkdirAll(path.Str, 0755)
+		_ = os.MkdirAll(path.Str, 0755)
 
 	case ir.OpRemoveFile:
 		path := vm.pop()
-		os.Remove(path.Str)
+		_ = os.Remove(path.Str)
 
 	case ir.OpRenameFile:
 		newPath := vm.pop()
 		oldPath := vm.pop()
-		os.Rename(oldPath.Str, newPath.Str)
+		_ = os.Rename(oldPath.Str, newPath.Str)
 
 	case ir.OpReadDir:
 		path := vm.pop()

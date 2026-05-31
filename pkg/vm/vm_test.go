@@ -500,11 +500,15 @@ func TestVMSetOutput(t *testing.T) {
 
 	v := New(mod)
 	v.SetOutput(&buf1)
-	v.Run()
+	if _, err := v.Run(); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
 
 	v2 := New(mod)
 	v2.SetOutput(&buf2)
-	v2.Run()
+	if _, err := v2.Run(); err != nil {
+		t.Fatalf("run 2 failed: %v", err)
+	}
 
 	if buf1.String() != buf2.String() {
 		t.Errorf("expected same output, got %q vs %q", buf1.String(), buf2.String())
