@@ -18,7 +18,7 @@ import (
 	"github.com/dev-dami/carv/pkg/vm"
 )
 
-var version = "0.6.5"
+var version = "0.6.6"
 
 func main() {
 	if len(os.Args) < 2 {
