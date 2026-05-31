@@ -383,15 +383,15 @@ Get current working directory.
 let dir = cwd();
 ```
 
-### `exec(command, ...args) -> int`
-Run an external command. Returns the exit code. C codegen only.
+### `exec(command, ...args) -> int` ✅
+Run an external command. Returns the exit code.
 
 ```carv
 let code = exec("echo", "hello");  // prints "hello", returns 0
 ```
 
-### `exec_output(command, ...args) -> Result`
-Run an external command and capture output. Returns `Ok(stdout)` or `Err(stderr)`. C codegen only.
+### `exec_output(command, ...args) -> Result` ✅
+Run an external command and capture output. Returns `Ok(stdout)` or `Err(stderr)`.
 
 ```carv
 let result = exec_output("echo", "hello");
@@ -401,15 +401,15 @@ match result {
 }
 ```
 
-### `getenv(key) -> string`
-Get an environment variable. Returns empty string if not set. C codegen only.
+### `getenv(key) -> string` ✅
+Get an environment variable. Returns empty string if not set.
 
 ```carv
 let home = getenv("HOME");
 ```
 
-### `setenv(key, value)`
-Set an environment variable. C codegen only.
+### `setenv(key, value)` ✅
+Set an environment variable.
 
 ```carv
 setenv("MY_VAR", "hello");
@@ -417,30 +417,28 @@ setenv("MY_VAR", "hello");
 
 ## File I/O
 
-These work with `carv build` (C codegen) only.
-
-### `read_file(path) -> string`
+### `read_file(path) -> string` ✅
 Read entire file contents.
 
 ```carv
 let content = read_file("data.txt");
 ```
 
-### `write_file(path, content)`
+### `write_file(path, content)` ✅
 Write string to file.
 
 ```carv
 write_file("out.txt", "hello");
 ```
 
-### `append_file(path, content)`
+### `append_file(path, content)` ✅
 Append string to file. Creates the file if it doesn't exist.
 
 ```carv
 append_file("log.txt", "new line\n");
 ```
 
-### `file_exists(path) -> bool`
+### `file_exists(path) -> bool` ✅
 Check if file exists.
 
 ```carv
@@ -449,28 +447,28 @@ if file_exists("config.txt") {
 }
 ```
 
-### `mkdir(path)`
+### `mkdir(path)` ✅
 Create a directory (and parent directories).
 
 ```carv
 mkdir("build/output");
 ```
 
-### `delete_file(path)`
+### `delete_file(path)` ✅
 Delete a file.
 
 ```carv
 delete_file("old.txt");
 ```
 
-### `rename_file(old_path, new_path)`
+### `rename_file(old_path, new_path)` ✅
 Rename or move a file.
 
 ```carv
 rename_file("old.txt", "new.txt");
 ```
 
-### `list_dir(path) -> array`
+### `list_dir(path) -> array` ✅
 Read directory entries and return sorted file/directory names.
 
 ```carv
@@ -478,7 +476,7 @@ let entries = list_dir(".");
 println(entries);
 ```
 
-### `cwd() -> string`
+### `cwd() -> string` ✅
 Get current working directory.
 
 ```carv
@@ -487,7 +485,7 @@ println(cwd());
 
 ## Networking (TCP)
 
-Use these via the built-in `net` or `web` module. C codegen only.
+Use these via the built-in `net` or `web` module.
 
 ```carv
 require "net" as net;
@@ -495,35 +493,35 @@ require "net" as net;
 
 `net` and `web` currently expose the same low-level TCP primitives.
 
-### `tcp_listen(host, port) -> int`
+### `tcp_listen(host, port) -> int` ✅
 Create a TCP listener and return a listener handle.
 
 ```carv
 let listener = net.tcp_listen("127.0.0.1", 8080);
 ```
 
-### `tcp_accept(listener) -> int`
+### `tcp_accept(listener) -> int` ✅
 Accept one incoming TCP connection and return a connection handle.
 
 ```carv
 let conn = net.tcp_accept(listener);
 ```
 
-### `tcp_read(conn, max_bytes) -> string`
+### `tcp_read(conn, max_bytes) -> string` ✅
 Read up to `max_bytes` bytes from a TCP connection.
 
 ```carv
 let request = net.tcp_read(conn, 4096);
 ```
 
-### `tcp_write(conn, data) -> int`
+### `tcp_write(conn, data) -> int` ✅
 Write string data to a TCP connection. Returns number of bytes written.
 
 ```carv
 let wrote = net.tcp_write(conn, "hello");
 ```
 
-### `tcp_close(handle) -> bool`
+### `tcp_close(handle) -> bool` ✅
 Close a listener or connection handle.
 
 ```carv
@@ -533,16 +531,16 @@ net.tcp_close(listener);
 
 ## Control Flow
 
-### `exit(code?)`
-Exit program with optional status code. C codegen only.
+### `exit(code?)` ✅
+Exit program with optional status code.
 
 ```carv
 exit();    // exit with 0
 exit(1);   // exit with 1
 ```
 
-### `panic(message)`
-Crash with error message. C codegen only.
+### `panic(message)` ✅
+Crash with error message.
 
 ```carv
 panic("something went wrong");

@@ -14,8 +14,8 @@ fn double(n: int) -> int {
 }
 
 print("Hello, Carv!");
-// let x = 10;
-// x |> double |> print;  // pipe operator: planned, not yet implemented
+let x = 10;
+x |> double |> print;  // pipe operator: works with carv run (VM) and carv build (C codegen)
 ```
 
 ## String Interpolation
